@@ -14,7 +14,10 @@ const ALARM_NAME = "bdm-watchdog";
 const WATCHDOG_PERIOD_MIN = 1; // chrome.alarms 周期下限
 
 async function hasOffscreen() {
-  const ctxs = await chrome.runtime.getContexts({ contextTypes: ["OFFSCREEN"] });
+  // 注意枚举值是 "OFFSCREEN_DOCUMENT"，不是 "OFFSCREEN"（早期 API 文档沿用旧名会触发参数校验错误）
+  const ctxs = await chrome.runtime.getContexts({
+    contextTypes: ["OFFSCREEN_DOCUMENT"],
+  });
   return ctxs.length > 0;
 }
 
