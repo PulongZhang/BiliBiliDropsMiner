@@ -1,4 +1,47 @@
-# Bilibili 直播掉宝助手
+# Bilibili 直播掉宝助手 · 浏览器扩展版
+
+B 站直播掉宝/观看时长挂机的 **Chrome/Edge 浏览器扩展（MV3）**——加载即用，**无需 Python**。
+单房间最多 100 路会话并发维持 x25Kn 心跳，未开播也挂，任务完成后**自动领奖**。
+
+> 本仓库在 [mi0e/BiliBiliDropsMiner](https://github.com/mi0e/BiliBiliDropsMiner)（MIT）的 Python 原版基础上，
+> 由 [PulongZhang](https://github.com/PulongZhang) 增补 MV3 浏览器扩展移植（`extension/` 目录）。
+
+## 🚀 快速开始（浏览器扩展）
+
+1. 克隆仓库
+   ```bash
+   git clone https://github.com/PulongZhang/BiliBiliDropsMiner.git
+   ```
+2. 打开 `chrome://extensions`（Edge 用 `edge://extensions`）→ 开启 **开发者模式**
+3. **「加载已解压的扩展程序」** → 选择仓库下的 `extension/` 目录
+4. 登录 [bilibili.com](https://www.bilibili.com)
+5. 点扩展图标 → 打开目标直播间 → **「识别」** 自动填入房间号和任务 ID → 填会话数（默认 100）→ **启动**
+
+心跳引擎在 offscreen document 中常驻运行（关掉标签页也不影响），看门狗自动续跑。
+完整验证流程见 [runbook](docs/superpowers/specs/2026-07-05-extension-port-verification.md)，
+架构与设计见 [extension-port-design](docs/superpowers/specs/2026-07-05-extension-port-design.md)。
+
+## 🛠️ 扩展功能
+
+- **免 Python**：Chrome / Edge 加载即用，无任何运行时依赖
+- **单房间 100 会话并发**：1s 错峰维持 x25Kn 心跳（对齐 Python 原版 bench 验证的下限）
+- **未开播也挂**：与原版一致，不依赖直播间正在直播
+- **任务监控 + 自动领奖**：周期轮询 totalv2 进度，任务完成且可领时自动领取、不重领（原版需手动点按钮）
+- **一键识别**：从当前直播间 `__initialState` 自动取房间号 + 任务 ID
+- **续跑 + 看门狗**：浏览器重启自动恢复；offscreen 异常死亡 1 分钟内自愈
+- **角标状态**：图标角标实时显示运行/总数比例与颜色
+
+## ⚠️ 免责声明
+
+> [!IMPORTANT]
+> 仅供个人学习研究，不保证稳定性，不提供技术支持。使用后果自负；禁止商业用途，请遵守版权及平台规定。
+> 挂机可能违反 B 站用户协议，账号风控风险自负。
+
+---
+
+# Python GUI/CLI 原版
+
+> 以下为上游 [mi0e](https://github.com/mi0e) 的 Python 版说明，保留自原仓库。
 
 轻量、直接的 B 站直播掉宝/观看时长任务挂机工具。  
 支持 GUI 与 CLI 双模式，支持多房间、多会话并行与任务进度追踪。
