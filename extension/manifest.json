@@ -3,7 +3,7 @@
   "name": "BiliBili Drops Miner",
   "version": "0.1.0",
   "description": "B 站直播掉宝挂机（MV3 扩展版）。自动维持 x25Kn 心跳、追踪任务进度并领取奖励。",
-  "permissions": ["offscreen", "storage", "alarms", "scripting", "tabs", "activeTab"],
+  "permissions": ["offscreen", "storage", "alarms", "scripting", "tabs", "activeTab", "cookies"],
   "host_permissions": ["*://*.bilibili.com/*"],
   "background": { "service_worker": "background.js", "type": "module" },
   "action": { "default_popup": "popup/popup.html", "default_title": "BiliBili Drops Miner" }
