@@ -168,9 +168,9 @@ chrome.runtime.onInstalled.addListener(async () => {
 // SW 每次唤醒（被 idle kill 后重启）立即跑一次看门狗，确保角标/offscreen 尽快自愈
 runWatchdog().catch((e) => console.warn(TAG, "init watchdog:", e));
 
-// --- M2/M3 调试钩子（M6 popup 落地后移除）---
+// --- 调试钩子（popup 为正式 UI；此钩子便于在 SW 控制台做真实服务器验证）---
 // 在 SW 控制台（chrome://extensions → service worker）直接调用：
-//   await bdm.start({ roomId: 22743115, threadCount: 100 })
+//   await bdm.start({ roomId: 22743115, threadCount: 100, taskIds: ["xxx"] })
 //   await bdm.stop()
 //   await bdm.status()
 //   await bdm.watchdog()   // 手动触发一次看门狗周期

@@ -1,1 +1,103 @@
-body { font-family: system-ui, sans-serif; margin: 0; padding: 16px; min-width: 320px; }
+:root {
+  --bg: #ffffff;
+  --fg: #1f2329;
+  --muted: #8a8f99;
+  --accent: #00a1d6;
+  --accent-hover: #0090c2;
+  --danger: #c0392b;
+  --border: #e3e5e7;
+  --panel: #f6f7f8;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  width: 340px;
+  font: 13px/1.5 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  color: var(--fg);
+  background: var(--bg);
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+h1 { font-size: 14px; margin: 0; }
+
+.badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--border);
+  color: var(--muted);
+}
+.badge.running { background: #e0f4fa; color: var(--accent); }
+.badge.waiting { background: #fff4e0; color: #b07a00; }
+.badge.error   { background: #fbe5e2; color: var(--danger); }
+
+form { padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+
+.row { display: flex; flex-direction: column; gap: 4px; }
+.row > label { font-size: 12px; color: var(--muted); }
+.row > label > span { display: block; font-size: 11px; color: var(--muted); font-weight: normal; }
+
+.row input[type="number"] {
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font: inherit;
+}
+
+#detect {
+  align-self: flex-start;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--muted);
+}
+
+textarea {
+  resize: vertical;
+  font: inherit;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 5px 8px;
+}
+
+.actions { display: flex; gap: 8px; }
+.actions button {
+  flex: 1;
+  padding: 7px 0;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+.actions button.primary {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.actions button.primary:hover { background: var(--accent-hover); }
+.actions button#stopBtn { color: var(--danger); }
+
+#status {
+  margin: 0;
+  padding: 12px 14px;
+  border-top: 1px solid var(--border);
+  white-space: pre-wrap;
+  font-size: 12px;
+  color: var(--muted);
+  max-height: 180px;
+  overflow-y: auto;
+}

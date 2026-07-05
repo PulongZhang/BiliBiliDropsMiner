@@ -6,8 +6,41 @@
   <link rel="stylesheet" href="popup.css" />
 </head>
 <body>
-  <!-- M0 scaffold stub. Real control panel lands in M6. -->
-  <div id="root">加载中…（骨架阶段）</div>
+  <header>
+    <h1>BiliBili 掉宝挂机</h1>
+    <span id="badgeState" class="badge">—</span>
+  </header>
+
+  <form id="form">
+    <div class="row">
+      <label for="roomId">房间 ID</label>
+      <input id="roomId" type="number" min="1" required />
+      <button type="button" id="detect" title="从当前打开的直播间标签页读取房间号">识别</button>
+    </div>
+
+    <div class="row">
+      <label for="threadCount">会话数</label>
+      <input id="threadCount" type="number" min="1" value="100" />
+    </div>
+
+    <div class="row">
+      <label for="taskIds">任务 ID<span>逗号或换行分隔，留空则只挂时长不领奖</span></label>
+      <textarea id="taskIds" rows="3" placeholder="可选，例如 123456, 789012"></textarea>
+    </div>
+
+    <div class="row">
+      <label for="taskInterval">任务查询间隔（秒）</label>
+      <input id="taskInterval" type="number" min="10" value="30" />
+    </div>
+
+    <div class="actions">
+      <button type="submit" id="startBtn" class="primary">启动</button>
+      <button type="button" id="stopBtn">停止</button>
+    </div>
+  </form>
+
+  <pre id="status">加载中…</pre>
+
   <script type="module" src="popup.js"></script>
 </body>
 </html>
