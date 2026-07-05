@@ -229,6 +229,17 @@ pip install -r requirements.txt
 
 ## 📄 License
 
-MIT
+MIT，详见 [LICENSE](LICENSE)。
+
+## 🙏 来源与致谢
+
+Python GUI/CLI 原版（`main` 分支根目录）由 [mi0e](https://github.com/mi0e) 开发，
+上游仓库：<https://github.com/mi0e/BiliBiliDropsMiner>。
+
+MV3 浏览器扩展移植（`extension/` 目录）由 [PulongZhang](https://github.com/PulongZhang)
+完成，遵循同一 MIT 许可证——无需 Python 环境，Chrome/Edge 加载即用，支持单房间
+100 会话并发、任务进度监控与自动领奖。详见
+[扩展移植设计](docs/superpowers/specs/2026-07-05-extension-port-design.md) 与
+[验证 runbook](docs/superpowers/specs/2026-07-05-extension-port-verification.md)。
 
 ## 🥰 通过[爱发电](https://afdian.com/a/eriiiii)赞助
