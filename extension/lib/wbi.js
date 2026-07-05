@@ -22,6 +22,19 @@ export function getMixinKey(imgKey, subKey) {
   return out.slice(0, 32);
 }
 
+/** 从 nav 响应解析 WBI img/sub key（对应 parse_wbi_keys_from_nav）。 */
+export function parseWbiKeysFromNav(payload) {
+  const data = payload.data || {};
+  const wbiImg = data.wbi_img || {};
+  const imgUrl = String(wbiImg.img_url || "");
+  const subUrl = String(wbiImg.sub_url || "");
+  if (!imgUrl || !subUrl) throw new Error("nav 返回缺少 wbi_img");
+  const imgKey = imgUrl.split("/").pop().split(".")[0];
+  const subKey = subUrl.split("/").pop().split(".")[0];
+  if (!imgKey || !subKey) throw new Error("wbi key 解析失败");
+  return { imgKey, subKey };
+}
+
 const UNRESERVED = /^[A-Za-z0-9_.\-~]$/;
 
 function pyQuote(str) {

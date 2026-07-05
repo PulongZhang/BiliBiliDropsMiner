@@ -507,5 +507,37 @@
         "liveStatus": 1
       }
     }
+  ],
+  "wbi_keys": [
+    {
+      "payload": {
+        "code": 0,
+        "data": {
+          "wbi_img": {
+            "img_url": "https://i0.hdslb.com/bfs/wbi/7cd93e4b9c0b7f6a8d2e5c1f4a6b8c0d.png",
+            "sub_url": "https://i0.hdslb.com/bfs/wbi/e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6.png"
+          }
+        }
+      },
+      "expected": {
+        "imgKey": "7cd93e4b9c0b7f6a8d2e5c1f4a6b8c0d",
+        "subKey": "e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6"
+      }
+    },
+    {
+      "payload": {
+        "code": 0,
+        "data": {
+          "wbi_img": {
+            "img_url": "https://i0.hdslb.com/bfs/wbi/abcdef.png",
+            "sub_url": "https://i0.hdslb.com/bfs/wbi/0123456789.webp"
+          }
+        }
+      },
+      "expected": {
+        "imgKey": "abcdef",
+        "subKey": "0123456789"
+      }
+    }
   ]
 }

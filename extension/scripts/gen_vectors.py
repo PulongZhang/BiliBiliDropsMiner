@@ -230,6 +230,23 @@ def build_vectors(live_trace, wbi, live) -> dict:
             },
         })
 
+    # --- nav 响应里 WBI key 的解析（对应 wbi.parse_wbi_keys_from_nav）---
+    nav_payloads = [
+        {"code": 0, "data": {"wbi_img": {
+            "img_url": "https://i0.hdslb.com/bfs/wbi/7cd93e4b9c0b7f6a8d2e5c1f4a6b8c0d.png",
+            "sub_url": "https://i0.hdslb.com/bfs/wbi/e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6.png"}}},
+        {"code": 0, "data": {"wbi_img": {
+            "img_url": "https://i0.hdslb.com/bfs/wbi/abcdef.png",
+            "sub_url": "https://i0.hdslb.com/bfs/wbi/0123456789.webp"}}},
+    ]
+    vectors["wbi_keys"] = []
+    for p in nav_payloads:
+        img_key, sub_key = wbi.parse_wbi_keys_from_nav(p)
+        vectors["wbi_keys"].append({
+            "payload": p,
+            "expected": {"imgKey": img_key, "subKey": sub_key},
+        })
+
     return vectors
 
 

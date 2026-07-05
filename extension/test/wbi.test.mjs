@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { getMixinKey, encodeQuery, signWbiParams } from "../lib/wbi.js";
+import { getMixinKey, encodeQuery, signWbiParams, parseWbiKeysFromNav } from "../lib/wbi.js";
 import { loadVectors } from "./helpers.mjs";
 
 const vectors = loadVectors();
@@ -41,4 +41,14 @@ test("signWbiParams produces Python-identical w_rid", () => {
     assert.equal(signed.w_rid, v.expected_w_rid, JSON.stringify(v.params));
     assert.equal(signed.wts, v.wts);
   }
+});
+
+test("parseWbiKeysFromNav extracts img/sub key from nav wbi_img urls", () => {
+  for (const v of vectors.wbi_keys) {
+    assert.deepEqual(parseWbiKeysFromNav(v.payload), v.expected);
+  }
+});
+
+test("parseWbiKeysFromNav throws when wbi_img missing", () => {
+  assert.throws(() => parseWbiKeysFromNav({ code: 0, data: {} }));
 });
