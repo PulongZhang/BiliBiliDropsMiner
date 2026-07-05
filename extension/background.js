@@ -1,13 +1,17 @@
 // background.js (MV3 service worker)
 // 职责：按需创建 offscreen document、转发 start/stop、持久化 mining 配置、
-// 浏览器/扩展重启后续跑。M4 会补 chrome.alarms 看门狗（offscreen 被回收时重建）。
+// 浏览器/扩展重启后续跑、看门狗（offscreen 死亡则重建）、角标刷新。
 //
 // 消息约定：popup/外部发 "START"/"STOP"/"STATUS"；本 SW 收到后转发 "OFS_*" 给 offscreen。
 // offscreen 只认 OFS_*，避免 popup 直发消息被两端重复处理。
 
+import { decideWatchdogAction } from "./lib/watchdog.js";
+
 const TAG = "[BDM-BG]";
 const OFFSCREEN_URL = "offscreen/offscreen.html";
 const CONFIG_KEY = "mining";
+const ALARM_NAME = "bdm-watchdog";
+const WATCHDOG_PERIOD_MIN = 1; // chrome.alarms 周期下限
 
 async function hasOffscreen() {
   const ctxs = await chrome.runtime.getContexts({ contextTypes: ["OFFSCREEN"] });
@@ -32,16 +36,35 @@ async function setConfig(cfg) {
   await chrome.storage.local.set({ [CONFIG_KEY]: cfg });
 }
 
+function updateBadge(badge) {
+  chrome.action.setBadgeText({ text: badge.text });
+  if (badge.color) chrome.action.setBadgeBackgroundColor({ color: badge.color });
+}
+
+async function queryStatus() {
+  if (!(await hasOffscreen())) return { ok: true, status: { active: false } };
+  try {
+    return await chrome.runtime.sendMessage({ type: "OFS_STATUS" });
+  } catch (err) {
+    // offscreen 刚好这一刻不在 / 无响应：当作未运行
+    return { ok: false, status: { active: false }, error: String(err.message || err) };
+  }
+}
+
 async function startMining({ roomId, threadCount = 1 }) {
   if (!roomId) throw new Error("缺少 roomId");
   await setConfig({ roomId, threadCount, active: true });
   await ensureOffscreen();
   console.log(TAG, "→ OFS_START", { roomId, threadCount });
-  return await chrome.runtime.sendMessage({
+  const resp = await chrome.runtime.sendMessage({
     type: "OFS_START",
     roomId,
     threadCount,
   });
+  // 立即刷新角标，不必等下个 alarm tick
+  const st = resp?.ok ? resp.status : null;
+  if (st) updateBadge(decideWatchdogAction({ config: await getConfig(), offscreenAlive: true, status: st }).badge);
+  return resp;
 }
 
 async function stopMining() {
@@ -51,11 +74,45 @@ async function stopMining() {
     console.log(TAG, "→ OFS_STOP");
     await chrome.runtime.sendMessage({ type: "OFS_STOP" });
   }
+  updateBadge({ text: "", color: "#888888" });
 }
 
-async function queryStatus() {
-  if (!(await hasOffscreen())) return { ok: true, status: { running: false } };
-  return await chrome.runtime.sendMessage({ type: "OFS_STATUS" });
+/**
+ * 看门狗一个周期：
+ * 1. 拉配置 + offscreen 存活 + 最新 status；
+ * 2. decideWatchdogAction 给出 action/badge；
+ * 3. recreate → 重建 offscreen 并按配置重启；始终应用 badge。
+ */
+async function runWatchdog() {
+  const config = await getConfig();
+  const offscreenAlive = await hasOffscreen();
+  let status = null;
+  if (offscreenAlive) {
+    const resp = await queryStatus();
+    status = resp?.ok ? resp.status : null;
+  }
+  const decision = decideWatchdogAction({ config, offscreenAlive, status });
+  console.log(TAG, "watchdog:", decision.action);
+  if (decision.action === "recreate" && config) {
+    try {
+      await ensureOffscreen();
+      await chrome.runtime.sendMessage({
+        type: "OFS_START",
+        roomId: config.roomId,
+        threadCount: config.threadCount || 1,
+      });
+    } catch (err) {
+      console.warn(TAG, "recreate 失败:", err);
+    }
+  }
+  updateBadge(decision.badge);
+}
+
+async function ensureAlarm() {
+  const alarm = await chrome.alarms.get(ALARM_NAME);
+  if (!alarm) {
+    await chrome.alarms.create(ALARM_NAME, { periodInMinutes: WATCHDOG_PERIOD_MIN });
+  }
 }
 
 async function resumeIfNeeded() {
@@ -87,14 +144,35 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   return true;
 });
 
-chrome.runtime.onStartup.addListener(resumeIfNeeded);
-chrome.runtime.onInstalled.addListener(resumeIfNeeded);
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === ALARM_NAME) runWatchdog().catch((e) => console.warn(TAG, e));
+});
 
-// --- M2 调试钩子（M6 popup 落地后移除）---
+chrome.runtime.onStartup.addListener(async () => {
+  await ensureAlarm();
+  await resumeIfNeeded();
+  await runWatchdog();
+});
+
+chrome.runtime.onInstalled.addListener(async () => {
+  await ensureAlarm();
+  await resumeIfNeeded();
+});
+
+// SW 每次唤醒（被 idle kill 后重启）立即跑一次看门狗，确保角标/offscreen 尽快自愈
+runWatchdog().catch((e) => console.warn(TAG, "init watchdog:", e));
+
+// --- M2/M3 调试钩子（M6 popup 落地后移除）---
 // 在 SW 控制台（chrome://extensions → service worker）直接调用：
-//   await bdm.start({ roomId: 22743115 })
+//   await bdm.start({ roomId: 22743115, threadCount: 100 })
 //   await bdm.stop()
 //   await bdm.status()
-globalThis.bdm = { start: startMining, stop: stopMining, status: queryStatus };
+//   await bdm.watchdog()   // 手动触发一次看门狗周期
+globalThis.bdm = {
+  start: startMining,
+  stop: stopMining,
+  status: queryStatus,
+  watchdog: runWatchdog,
+};
 
-console.log(TAG, "background loaded（M2 relay）");
+console.log(TAG, "background loaded（M4 watchdog）");

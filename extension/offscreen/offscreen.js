@@ -139,9 +139,11 @@ async function stop() {
 }
 
 function status() {
-  if (!engine) return { running: false };
+  // 用 active 表示引擎是否运行；manager.status() 的 running 是「处于 running 态的
+  // 会话数」。两者键名不同，spread 不会互相覆盖（watchdog.badgeFromStatus 依赖此约定）。
+  if (!engine) return { active: false };
   return {
-    running: true,
+    active: true,
     roomId: engine.config.roomId,
     threadCount: engine.config.threadCount,
     startedAt: engine.startedAt,
