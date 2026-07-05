@@ -24,10 +24,11 @@ def _load_pure_modules():
         sys.modules[pkg] = mod
     live_trace = importlib.import_module("bilibili_drops_miner.client_parts.live_trace")
     wbi = importlib.import_module("bilibili_drops_miner.client_parts.wbi")
-    return live_trace, wbi
+    live = importlib.import_module("bilibili_drops_miner.client_parts.live")
+    return live_trace, wbi, live
 
 
-def build_vectors(live_trace, wbi) -> dict:
+def build_vectors(live_trace, wbi, live) -> dict:
     vectors: dict = {}
 
     # --- compact_json：独立验证 JSON 紧凑序列化（字段顺序 / 中文 / 数字 / 转义）---
@@ -204,12 +205,37 @@ def build_vectors(live_trace, wbi) -> dict:
         },
     }
 
+    # --- 直播间信息解析（对应 live.parse_live_room_info）---
+    room_info_payloads = [
+        {"code": 0, "data": {"room_info": {
+            "room_id": 22743115, "uid": 65537,
+            "parent_area_id": 2, "area_id": 21, "live_status": 1}}},
+        {"code": 0, "data": {"room_info": {
+            "room_id": 22743115, "uid": 65537,
+            "parent_area_id": 2, "area_id": 21, "live_status": 0}}},  # 未开播
+        {"code": 0, "data": {"room_info": {
+            "room_id": 999, "uid": 888,
+            "parent_area_id": 10, "area_id": 100, "live_status": 1,
+            "extra_field": "ignored"}}},  # 多余字段忽略
+    ]
+    vectors["room_info"] = []
+    for p in room_info_payloads:
+        info = live.parse_live_room_info(p, room_id=p["data"]["room_info"]["room_id"])
+        vectors["room_info"].append({
+            "payload": p,
+            "expected": {
+                "roomId": info.room_id, "ruid": info.ruid,
+                "parentAreaId": info.parent_area_id, "areaId": info.area_id,
+                "liveStatus": info.live_status,
+            },
+        })
+
     return vectors
 
 
 def main() -> None:
-    live_trace, wbi = _load_pure_modules()
-    vectors = build_vectors(live_trace, wbi)
+    live_trace, wbi, live = _load_pure_modules()
+    vectors = build_vectors(live_trace, wbi, live)
     out_dir = Path(__file__).resolve().parent.parent / "test" / "fixtures"
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / "vectors.json"

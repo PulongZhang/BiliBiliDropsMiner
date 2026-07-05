@@ -441,5 +441,71 @@
         2
       ]
     }
-  }
+  },
+  "room_info": [
+    {
+      "payload": {
+        "code": 0,
+        "data": {
+          "room_info": {
+            "room_id": 22743115,
+            "uid": 65537,
+            "parent_area_id": 2,
+            "area_id": 21,
+            "live_status": 1
+          }
+        }
+      },
+      "expected": {
+        "roomId": 22743115,
+        "ruid": 65537,
+        "parentAreaId": 2,
+        "areaId": 21,
+        "liveStatus": 1
+      }
+    },
+    {
+      "payload": {
+        "code": 0,
+        "data": {
+          "room_info": {
+            "room_id": 22743115,
+            "uid": 65537,
+            "parent_area_id": 2,
+            "area_id": 21,
+            "live_status": 0
+          }
+        }
+      },
+      "expected": {
+        "roomId": 22743115,
+        "ruid": 65537,
+        "parentAreaId": 2,
+        "areaId": 21,
+        "liveStatus": 0
+      }
+    },
+    {
+      "payload": {
+        "code": 0,
+        "data": {
+          "room_info": {
+            "room_id": 999,
+            "uid": 888,
+            "parent_area_id": 10,
+            "area_id": 100,
+            "live_status": 1,
+            "extra_field": "ignored"
+          }
+        }
+      },
+      "expected": {
+        "roomId": 999,
+        "ruid": 888,
+        "parentAreaId": 10,
+        "areaId": 100,
+        "liveStatus": 1
+      }
+    }
+  ]
 }
