@@ -131,6 +131,79 @@ def build_vectors(live_trace, wbi) -> dict:
             "expected_mixin_key": wbi.get_mixin_key(img_key, sub_key),
         })
 
+    # --- live-trace 进出/心跳 参数构造与 payload 解析 ---
+    models = importlib.import_module("bilibili_drops_miner.client_parts.models")
+    LiveRoomInfo = models.LiveRoomInfo
+    room = LiveRoomInfo(room_id=22743115, ruid=65537, parent_area_id=2,
+                        area_id=21, live_status=1)
+    enter_common = dict(live_buvid="AUTO7654321098765432",
+                        live_uuid="11111111-2222-3333-4444-555555555555",
+                        user_agent="Mozilla/5.0 (Win64) Chrome/122",
+                        csrf="a1b2c3d4e5f6", ts_ms=1719740060000)
+    enter_params = live_trace.build_live_trace_enter_params(
+        room, **enter_common)
+
+    enter_payload = {
+        "code": 0,
+        "data": {
+            "timestamp": 1719740000,
+            "heartbeat_interval": 60,
+            "secret_key": "0xd4M3Ks9_pL2nQvR8wYb1",
+            "secret_rule": [0, 1, 2],
+        },
+    }
+    session = live_trace.live_trace_session_from_enter_payload(
+        enter_payload, room=room)
+
+    session_for_hb = live_trace.live_trace_session_from_enter_payload(
+        enter_payload, room=room)
+    hb_params = live_trace.build_live_trace_heartbeat_params(
+        session_for_hb, **{k: v for k, v in enter_common.items() if k != "ts_ms"},
+        signature="sigplaceholder", next_seq=1, duration=60,
+        ts_ms=1719740120000)
+
+    hb_payload = {
+        "code": 0,
+        "data": {
+            "timestamp": 1719740060,
+            "heartbeat_interval": 60,
+            "secret_key": "nextKey9876",
+            "secret_rule": [2],
+        },
+    }
+    session_after = live_trace.live_trace_session_from_enter_payload(
+        {**enter_payload}, room=room)
+    live_trace.apply_live_trace_heartbeat_payload(
+        session_after, hb_payload, next_seq=1)
+
+    vectors["live_trace"] = {
+        "room": {"room_id": room.room_id, "ruid": room.ruid,
+                 "parent_area_id": room.parent_area_id, "area_id": room.area_id,
+                 "live_status": room.live_status},
+        "enter_common": enter_common,
+        "enter_params": enter_params,
+        "enter_payload": enter_payload,
+        "session_after_enter": {
+            "roomId": session.room_id, "ruid": session.ruid,
+            "parentAreaId": session.parent_area_id, "areaId": session.area_id,
+            "seqId": session.seq_id, "ets": session.ets,
+            "heartbeatInterval": session.heartbeat_interval,
+            "secretKey": session.secret_key,
+            "secretRule": list(session.secret_rule),
+        },
+        "hb_signature_input": {
+            "next_seq": 1, "duration": 60, "ts_ms": 1719740120000,
+        },
+        "hb_params": hb_params,
+        "hb_payload": hb_payload,
+        "session_after_hb": {
+            "seqId": session_after.seq_id, "ets": session_after.ets,
+            "heartbeatInterval": session_after.heartbeat_interval,
+            "secretKey": session_after.secret_key,
+            "secretRule": list(session_after.secret_rule),
+        },
+    }
+
     return vectors
 
 

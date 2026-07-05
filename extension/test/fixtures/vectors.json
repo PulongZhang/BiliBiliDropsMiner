@@ -347,5 +347,99 @@
       "expected_query": "w_rid=&web_location=1430654&wts=1",
       "expected_mixin_key": "f82d19feab0df972b6e91cdec8647b5f"
     }
-  ]
+  ],
+  "live_trace": {
+    "room": {
+      "room_id": 22743115,
+      "ruid": 65537,
+      "parent_area_id": 2,
+      "area_id": 21,
+      "live_status": 1
+    },
+    "enter_common": {
+      "live_buvid": "AUTO7654321098765432",
+      "live_uuid": "11111111-2222-3333-4444-555555555555",
+      "user_agent": "Mozilla/5.0 (Win64) Chrome/122",
+      "csrf": "a1b2c3d4e5f6",
+      "ts_ms": 1719740060000
+    },
+    "enter_params": {
+      "id": "[2,21,0,22743115]",
+      "device": "[\"AUTO7654321098765432\",\"11111111-2222-3333-4444-555555555555\"]",
+      "ruid": 65537,
+      "ts": 1719740060000,
+      "is_patch": 0,
+      "heart_beat": "[]",
+      "ua": "Mozilla/5.0 (Win64) Chrome/122",
+      "web_location": "444.8",
+      "csrf": "a1b2c3d4e5f6"
+    },
+    "enter_payload": {
+      "code": 0,
+      "data": {
+        "timestamp": 1719740000,
+        "heartbeat_interval": 60,
+        "secret_key": "0xd4M3Ks9_pL2nQvR8wYb1",
+        "secret_rule": [
+          0,
+          1,
+          2
+        ]
+      }
+    },
+    "session_after_enter": {
+      "roomId": 22743115,
+      "ruid": 65537,
+      "parentAreaId": 2,
+      "areaId": 21,
+      "seqId": 0,
+      "ets": 1719740000,
+      "heartbeatInterval": 60,
+      "secretKey": "0xd4M3Ks9_pL2nQvR8wYb1",
+      "secretRule": [
+        0,
+        1,
+        2
+      ]
+    },
+    "hb_signature_input": {
+      "next_seq": 1,
+      "duration": 60,
+      "ts_ms": 1719740120000
+    },
+    "hb_params": {
+      "s": "sigplaceholder",
+      "id": "[2,21,1,22743115]",
+      "device": "[\"AUTO7654321098765432\",\"11111111-2222-3333-4444-555555555555\"]",
+      "ruid": 65537,
+      "ets": 1719740000,
+      "benchmark": "0xd4M3Ks9_pL2nQvR8wYb1",
+      "time": 60,
+      "ts": 1719740120000,
+      "trackid": -99998,
+      "ua": "Mozilla/5.0 (Win64) Chrome/122",
+      "web_location": "444.8",
+      "csrf": "a1b2c3d4e5f6"
+    },
+    "hb_payload": {
+      "code": 0,
+      "data": {
+        "timestamp": 1719740060,
+        "heartbeat_interval": 60,
+        "secret_key": "nextKey9876",
+        "secret_rule": [
+          2
+        ]
+      }
+    },
+    "session_after_hb": {
+      "seqId": 1,
+      "ets": 1719740060,
+      "heartbeatInterval": 60,
+      "secretKey": "nextKey9876",
+      "secretRule": [
+        2
+      ]
+    }
+  }
 }
