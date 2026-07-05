@@ -104,6 +104,7 @@ def build_vectors(mods: dict) -> dict:
     task_parsing = mods["task_parsing"]
     tasks = mods["tasks"]
     rewards = mods["rewards"]
+    utils = importlib.import_module("bilibili_drops_miner.utils")
     vectors: dict = {}
 
     # --- compact_json：独立验证 JSON 紧凑序列化（字段顺序 / 中文 / 数字 / 转义）---
@@ -561,6 +562,46 @@ def build_vectors(mods: dict) -> dict:
         "expected": claim_result_to_dict(
             rewards.failed_reward_claim_result("tErr", exc)),
     }
+
+    # --- __initialState 任务 ID 提取（对应 utils._extract_task_ids_from_task_group
+    #     遍历 EraTasklistPc）。扩展用 chrome.scripting world:MAIN 直接读页面对象。 ---
+    def _all_task_ids(state):
+        ids = []
+        seen = set()
+        groups = state.get("EraTasklistPc")
+        if not isinstance(groups, list):
+            return []
+        for g in groups:
+            if not isinstance(g, dict):
+                continue
+            ids.extend(utils._extract_task_ids_from_task_group(g, seen))
+        return ids
+
+    state_samples = [
+        {"name": "empty", "state": {}},
+        {"name": "single group", "state": {"EraTasklistPc": [
+            {"tasklist": [{"taskId": "111"}, {"taskId": "222"}]}]}},
+        {"name": "multi groups dedup", "state": {"EraTasklistPc": [
+            {"tasklist": [{"taskId": "a"}, {"taskId": "b"}]},
+            {"tasklist": [{"taskId": "b"}, {"taskId": "c"}]},  # b 重复
+            {"tasklist": [{"taskId": ""}, {"name": "x"}]},    # 空 / 无 taskId
+        ]}},
+        {"name": "tasklist missing/non-array", "state": {"EraTasklistPc": [
+            {"other": 1},
+            {"tasklist": "notarray"},
+            {"tasklist": [{"taskId": "z"}]},
+        ]}},
+        {"name": "EraTasklistPc not array", "state": {"EraTasklistPc": {"x": 1}}},
+        {"name": "taskId numeric", "state": {"EraTasklistPc": [
+            {"tasklist": [{"taskId": 12345}, {"taskId": 67890}]}]}},
+    ]
+    vectors["initial_state"] = []
+    for s in state_samples:
+        vectors["initial_state"].append({
+            "name": s["name"],
+            "state": s["state"],
+            "expected": _all_task_ids(s["state"]),
+        })
 
     return vectors
 

@@ -2,6 +2,7 @@
 // 不直接访问 offscreen，全部经 background 中继（OFS_* 由 background 转发）。
 
 import { extractRoomIdFromLiveUrl } from "../lib/url-parsing.js";
+import { extractTaskIdsFromInitialState } from "../lib/initial-state.js";
 
 const form = document.getElementById("form");
 const roomIdEl = document.getElementById("roomId");
@@ -90,12 +91,39 @@ detectBtn.addEventListener("click", async () => {
     return;
   }
   const roomId = extractRoomIdFromLiveUrl(tab.url);
+  if (roomId) roomIdEl.value = roomId;
+
+  // 直播间页面：注入 MAIN world 读 window.__initialState.EraTasklistPc 提取掉宝任务 ID
+  let taskIds = null;
   if (roomId) {
-    roomIdEl.value = roomId;
-    statusEl.textContent = `已识别房间号 ${roomId}`;
-  } else {
-    statusEl.textContent = "当前标签页不是直播间（live.bilibili.com/<id>）";
+    try {
+      const [{ result }] = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        world: "MAIN",
+        func: () =>
+          window.__initialState ? window.__initialState.EraTasklistPc : null,
+      });
+      if (result) {
+        taskIds = extractTaskIdsFromInitialState({ EraTasklistPc: result });
+      }
+    } catch (err) {
+      // 页面受限 / 正在导航 —— 忽略，仅回填房间号
+    }
   }
+
+  if (!roomId && !taskIds) {
+    statusEl.textContent = "当前标签页不是直播间（live.bilibili.com/<id>）";
+    return;
+  }
+  const parts = [];
+  if (roomId) parts.push(`房间号 ${roomId}`);
+  if (taskIds && taskIds.length) {
+    taskIdsEl.value = taskIds.join(", ");
+    parts.push(`${taskIds.length} 个任务 ID`);
+  } else if (roomId) {
+    parts.push("页面未发现掉宝任务（__initialState 无 EraTasklistPc）");
+  }
+  statusEl.textContent = "已识别：" + parts.join("，");
 });
 
 form.addEventListener("submit", async (e) => {

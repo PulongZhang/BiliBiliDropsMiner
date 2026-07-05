@@ -1356,5 +1356,128 @@
         "code": null
       }
     }
-  }
+  },
+  "initial_state": [
+    {
+      "name": "empty",
+      "state": {},
+      "expected": []
+    },
+    {
+      "name": "single group",
+      "state": {
+        "EraTasklistPc": [
+          {
+            "tasklist": [
+              {
+                "taskId": "111"
+              },
+              {
+                "taskId": "222"
+              }
+            ]
+          }
+        ]
+      },
+      "expected": [
+        "111",
+        "222"
+      ]
+    },
+    {
+      "name": "multi groups dedup",
+      "state": {
+        "EraTasklistPc": [
+          {
+            "tasklist": [
+              {
+                "taskId": "a"
+              },
+              {
+                "taskId": "b"
+              }
+            ]
+          },
+          {
+            "tasklist": [
+              {
+                "taskId": "b"
+              },
+              {
+                "taskId": "c"
+              }
+            ]
+          },
+          {
+            "tasklist": [
+              {
+                "taskId": ""
+              },
+              {
+                "name": "x"
+              }
+            ]
+          }
+        ]
+      },
+      "expected": [
+        "a",
+        "b",
+        "c"
+      ]
+    },
+    {
+      "name": "tasklist missing/non-array",
+      "state": {
+        "EraTasklistPc": [
+          {
+            "other": 1
+          },
+          {
+            "tasklist": "notarray"
+          },
+          {
+            "tasklist": [
+              {
+                "taskId": "z"
+              }
+            ]
+          }
+        ]
+      },
+      "expected": [
+        "z"
+      ]
+    },
+    {
+      "name": "EraTasklistPc not array",
+      "state": {
+        "EraTasklistPc": {
+          "x": 1
+        }
+      },
+      "expected": []
+    },
+    {
+      "name": "taskId numeric",
+      "state": {
+        "EraTasklistPc": [
+          {
+            "tasklist": [
+              {
+                "taskId": 12345
+              },
+              {
+                "taskId": 67890
+              }
+            ]
+          }
+        ]
+      },
+      "expected": [
+        "12345",
+        "67890"
+      ]
+    }
+  ]
 }
