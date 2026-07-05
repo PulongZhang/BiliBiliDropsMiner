@@ -1,0 +1,11 @@
+{
+  "name": "bilibili-drops-miner-extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MV3 扩展版 B 站掉宝挂机（开发期用 Node 内置 test 跑签名层对拍）",
+  "scripts": {
+    "test": "node --test \"test/**/*.test.mjs\"",
+    "gen-vectors": "uv run --no-project --python 3.12 python scripts/gen_vectors.py"
+  }
+}

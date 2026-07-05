@@ -1,0 +1,351 @@
+{
+  "compact_json": [
+    {
+      "input": {
+        "platform": "web",
+        "parent_id": 2,
+        "area_id": 21,
+        "seq_id": 1,
+        "room_id": 999,
+        "buvid": "AUTO123",
+        "uuid": "u-x",
+        "ets": 1000,
+        "time": 60,
+        "ts": 1700000000000
+      },
+      "expected": "{\"platform\":\"web\",\"parent_id\":2,\"area_id\":21,\"seq_id\":1,\"room_id\":999,\"buvid\":\"AUTO123\",\"uuid\":\"u-x\",\"ets\":1000,\"time\":60,\"ts\":1700000000000}"
+    },
+    {
+      "input": {
+        "b": 1,
+        "a": "中文",
+        "c": [
+          1,
+          2,
+          {
+            "z": 0,
+            "y": true
+          }
+        ],
+        "n": null
+      },
+      "expected": "{\"b\":1,\"a\":\"中文\",\"c\":[1,2,{\"z\":0,\"y\":true}],\"n\":null}"
+    },
+    {
+      "input": [
+        2,
+        21,
+        0,
+        999
+      ],
+      "expected": "[2,21,0,999]"
+    },
+    {
+      "input": [
+        "AUTO7654321098765432",
+        "11111111-2222-3333-4444-555555555555"
+      ],
+      "expected": "[\"AUTO7654321098765432\",\"11111111-2222-3333-4444-555555555555\"]"
+    },
+    {
+      "input": {
+        "id": "[2,21,0,999]",
+        "device": "[\"buvid\",\"uuid\"]",
+        "ruid": 123456,
+        "ts": 1700000000000,
+        "is_patch": 0,
+        "heart_beat": "[]",
+        "ua": "Mozilla/5.0 (Win64) Chrome/122",
+        "web_location": "444.8",
+        "csrf": "abc123"
+      },
+      "expected": "{\"id\":\"[2,21,0,999]\",\"device\":\"[\\\"buvid\\\",\\\"uuid\\\"]\",\"ruid\":123456,\"ts\":1700000000000,\"is_patch\":0,\"heart_beat\":\"[]\",\"ua\":\"Mozilla/5.0 (Win64) Chrome/122\",\"web_location\":\"444.8\",\"csrf\":\"abc123\"}"
+    }
+  ],
+  "hmac": [
+    {
+      "data_hex": "74686520717569636b2062726f776e20666f7820e7ae97e7adbee5908d",
+      "key": "Y2MaPx7e9*Wq4L1d",
+      "rule": 0,
+      "expected_hex": "6661383261373264303031633439613561323130653865313536363839363037"
+    },
+    {
+      "data_hex": "74686520717569636b2062726f776e20666f7820e7ae97e7adbee5908d",
+      "key": "Y2MaPx7e9*Wq4L1d",
+      "rule": 1,
+      "expected_hex": "31333234623137346263363064643139396539313462303663356331366535363830383931376537"
+    },
+    {
+      "data_hex": "74686520717569636b2062726f776e20666f7820e7ae97e7adbee5908d",
+      "key": "Y2MaPx7e9*Wq4L1d",
+      "rule": 2,
+      "expected_hex": "38356566643466383264366464323863353731353035333534303337333733623566613734613330633461353337343539313661333933626238323366306363"
+    },
+    {
+      "data_hex": "74686520717569636b2062726f776e20666f7820e7ae97e7adbee5908d",
+      "key": "Y2MaPx7e9*Wq4L1d",
+      "rule": 3,
+      "expected_hex": "3363353639343831333235656564366432346665663763343933666438323934663161383632656538376265626133643835366132646435"
+    },
+    {
+      "data_hex": "74686520717569636b2062726f776e20666f7820e7ae97e7adbee5908d",
+      "key": "Y2MaPx7e9*Wq4L1d",
+      "rule": 4,
+      "expected_hex": "6162326438373131323730373862303839633335636235303964356336663964336466386136613036626437656561656661663664646364653266303032653364616264613265356335663363313166633865353531376661353566356665636631306130313162616264623937393162376164376665323731623936396430"
+    },
+    {
+      "data_hex": "74686520717569636b2062726f776e20666f7820e7ae97e7adbee5908d",
+      "key": "Y2MaPx7e9*Wq4L1d",
+      "rule": 5,
+      "expected_hex": "393631316661663633323239333165343639626464613663616531653062656130323337386332613565613637653434623737613837646535613630636239373364353865306666383731303331653232366539363035343162626661306334"
+    },
+    {
+      "data_hex": "74686520717569636b2062726f776e20666f7820e7ae97e7adbee5908d",
+      "key": "Y2MaPx7e9*Wq4L1d",
+      "rule": [
+        2,
+        0
+      ],
+      "expected_hex": "3034393261316139633335363666316265643433393439303561363565336461",
+      "multiround": true
+    },
+    {
+      "data_hex": "74686520717569636b2062726f776e20666f7820e7ae97e7adbee5908d",
+      "key": "Y2MaPx7e9*Wq4L1d",
+      "rule": [
+        0,
+        1,
+        2
+      ],
+      "expected_hex": "65653165363436376663623135653461323437316538613937623364613065666531393862383063646564666139336434393332653131326262636462356635",
+      "multiround": true
+    },
+    {
+      "data_hex": "74686520717569636b2062726f776e20666f7820e7ae97e7adbee5908d",
+      "key": "Y2MaPx7e9*Wq4L1d",
+      "rule": [
+        5,
+        5,
+        5
+      ],
+      "expected_hex": "633031343836643930613338316161386235653464643439303834343535303463353234393436396233336361346435343531346363393138636533363734663734363935343964656161386462623163346361633562353733333532313734",
+      "multiround": true
+    },
+    {
+      "data_hex": "74686520717569636b2062726f776e20666f7820e7ae97e7adbee5908d",
+      "key": "Y2MaPx7e9*Wq4L1d",
+      "rule": [
+        3,
+        4
+      ],
+      "expected_hex": "3135303364393336313633653933386336346335646236656132366530323332626531333534316262343130666364346431336231373239393662383837336134326231646133383935313235636566393539636132396364613837316534656466613236383061383161663339663532623534313431393030323762366535",
+      "multiround": true
+    }
+  ],
+  "x25kn_signature": [
+    {
+      "params": {
+        "live_buvid": "AUTO7654321098765432",
+        "live_uuid": "11111111-2222-3333-4444-555555555555",
+        "parent_area_id": 2,
+        "area_id": 21,
+        "seq_id": 7,
+        "room_id": 22743115,
+        "ets": 1719740000,
+        "duration": 60,
+        "ts_ms": 1719740060000,
+        "secret_key": "0xd4M3Ks9_pL2nQvR8wYb1",
+        "secret_rule": [
+          2
+        ]
+      },
+      "expected": "ffc412c609d216ebb8daa844b154309ce0d6e2424d4a0d4af6e20d67b168a0ec"
+    },
+    {
+      "params": {
+        "live_buvid": "AUTO7654321098765432",
+        "live_uuid": "11111111-2222-3333-4444-555555555555",
+        "parent_area_id": 2,
+        "area_id": 21,
+        "seq_id": 7,
+        "room_id": 22743115,
+        "ets": 1719740000,
+        "duration": 60,
+        "ts_ms": 1719740060000,
+        "secret_key": "0xd4M3Ks9_pL2nQvR8wYb1",
+        "secret_rule": [
+          0
+        ]
+      },
+      "expected": "f4167e1b974f76e267c03392f9a0c3fa"
+    },
+    {
+      "params": {
+        "live_buvid": "AUTO7654321098765432",
+        "live_uuid": "11111111-2222-3333-4444-555555555555",
+        "parent_area_id": 2,
+        "area_id": 21,
+        "seq_id": 7,
+        "room_id": 22743115,
+        "ets": 1719740000,
+        "duration": 60,
+        "ts_ms": 1719740060000,
+        "secret_key": "0xd4M3Ks9_pL2nQvR8wYb1",
+        "secret_rule": [
+          1
+        ]
+      },
+      "expected": "aaa64df4ce581fe3728d00d33ea4a73b39333863"
+    },
+    {
+      "params": {
+        "live_buvid": "AUTO7654321098765432",
+        "live_uuid": "11111111-2222-3333-4444-555555555555",
+        "parent_area_id": 2,
+        "area_id": 21,
+        "seq_id": 7,
+        "room_id": 22743115,
+        "ets": 1719740000,
+        "duration": 60,
+        "ts_ms": 1719740060000,
+        "secret_key": "0xd4M3Ks9_pL2nQvR8wYb1",
+        "secret_rule": [
+          3
+        ]
+      },
+      "expected": "67a61723c436c34ceefc68fc3c02230a8ab1d55ea6f056a185df2036"
+    },
+    {
+      "params": {
+        "live_buvid": "AUTO7654321098765432",
+        "live_uuid": "11111111-2222-3333-4444-555555555555",
+        "parent_area_id": 2,
+        "area_id": 21,
+        "seq_id": 7,
+        "room_id": 22743115,
+        "ets": 1719740000,
+        "duration": 60,
+        "ts_ms": 1719740060000,
+        "secret_key": "0xd4M3Ks9_pL2nQvR8wYb1",
+        "secret_rule": [
+          4
+        ]
+      },
+      "expected": "c0ff3415e7c316d021e3e681c3b080fef77ed8f9e292922cfdd7bd1c64165d053c9d4e26781a8087e84fa4d3211561e8f4226aafe925ab66421aee23f7cb7e85"
+    },
+    {
+      "params": {
+        "live_buvid": "AUTO7654321098765432",
+        "live_uuid": "11111111-2222-3333-4444-555555555555",
+        "parent_area_id": 2,
+        "area_id": 21,
+        "seq_id": 7,
+        "room_id": 22743115,
+        "ets": 1719740000,
+        "duration": 60,
+        "ts_ms": 1719740060000,
+        "secret_key": "0xd4M3Ks9_pL2nQvR8wYb1",
+        "secret_rule": [
+          5
+        ]
+      },
+      "expected": "0ede1af6041446440298a2fd227e713b445489d93f046256750a29512f7b638fdc0a89a40aad845a4531155e6a894b64"
+    },
+    {
+      "params": {
+        "live_buvid": "AUTO7654321098765432",
+        "live_uuid": "11111111-2222-3333-4444-555555555555",
+        "parent_area_id": 2,
+        "area_id": 21,
+        "seq_id": 7,
+        "room_id": 22743115,
+        "ets": 1719740000,
+        "duration": 60,
+        "ts_ms": 1719740060000,
+        "secret_key": "0xd4M3Ks9_pL2nQvR8wYb1",
+        "secret_rule": [
+          2,
+          0
+        ]
+      },
+      "expected": "3680c49bb284ae2971c41b82f7a12f70"
+    },
+    {
+      "params": {
+        "live_buvid": "AUTO7654321098765432",
+        "live_uuid": "11111111-2222-3333-4444-555555555555",
+        "parent_area_id": 2,
+        "area_id": 21,
+        "seq_id": 7,
+        "room_id": 22743115,
+        "ets": 1719740000,
+        "duration": 60,
+        "ts_ms": 1719740060000,
+        "secret_key": "0xd4M3Ks9_pL2nQvR8wYb1",
+        "secret_rule": [
+          0,
+          1,
+          2
+        ]
+      },
+      "expected": "ea9a2f820ba0c6c1c0091b24eac3858b20e1e2d87f07d012ecd575f73820a214"
+    }
+  ],
+  "mixin_key": [
+    {
+      "img_key": "7cd93e4b9c0b7f6a8d2e5c1f4a6b8c0d",
+      "sub_key": "e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6",
+      "expected": "f82d19feab0df972b6e91cdec8647b5f"
+    },
+    {
+      "img_key": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+      "sub_key": "0f9e8d7c6b5a49382715061423222100",
+      "expected": "383b6ec081f0229eea37f55af81c07b7"
+    },
+    {
+      "img_key": "deadbeefdeadbeefdeadbeefdeadbeef",
+      "sub_key": "cafebabecafebabecafebabecafebabe",
+      "expected": "beaaadfcffaffdaedeeaaefdebeebbae"
+    }
+  ],
+  "wbi": [
+    {
+      "params": {
+        "foo": "bar",
+        "baz": 42
+      },
+      "img_key": "7cd93e4b9c0b7f6a8d2e5c1f4a6b8c0d",
+      "sub_key": "e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6",
+      "wts": 1719740000,
+      "expected_w_rid": "8a4d07206577a9be627540ffb31f8bd4",
+      "expected_query": "baz=42&foo=bar&wts=1719740000",
+      "expected_mixin_key": "f82d19feab0df972b6e91cdec8647b5f"
+    },
+    {
+      "params": {
+        "name": "张三",
+        "q": "a b/c!d(e)f*g'h",
+        "n": 0
+      },
+      "img_key": "7cd93e4b9c0b7f6a8d2e5c1f4a6b8c0d",
+      "sub_key": "e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6",
+      "wts": 1700000000,
+      "expected_w_rid": "cc20656151f20258e9ed7c43d0bf5a32",
+      "expected_query": "n=0&name=%E5%BC%A0%E4%B8%89&q=a%20b%2Fcdefgh&wts=1700000000",
+      "expected_mixin_key": "f82d19feab0df972b6e91cdec8647b5f"
+    },
+    {
+      "params": {
+        "web_location": "1430654",
+        "w_rid": "",
+        "wts": 0
+      },
+      "img_key": "7cd93e4b9c0b7f6a8d2e5c1f4a6b8c0d",
+      "sub_key": "e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6",
+      "wts": 1,
+      "expected_w_rid": "75275a80a017b99fa994c2774202fa5a",
+      "expected_query": "w_rid=&web_location=1430654&wts=1",
+      "expected_mixin_key": "f82d19feab0df972b6e91cdec8647b5f"
+    }
+  ]
+}

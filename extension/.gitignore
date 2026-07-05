@@ -1,0 +1,3 @@
+node_modules/
+# vectors.json 是 JS 签名测试的契约（Python 真值），提交以让 npm test 自包含；
+# 需要重新生成时用：npm run gen-vectors（依赖 uv + 项目 Python 模块）
