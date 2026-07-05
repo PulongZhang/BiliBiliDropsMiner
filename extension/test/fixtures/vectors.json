@@ -539,5 +539,822 @@
         "subKey": "0123456789"
       }
     }
-  ]
+  ],
+  "task_parsing": {
+    "coerce_task_number": [
+      {
+        "input": null,
+        "expected": 0
+      },
+      {
+        "input": "",
+        "expected": 0
+      },
+      {
+        "input": "   ",
+        "expected": 0
+      },
+      {
+        "input": "3",
+        "expected": 3
+      },
+      {
+        "input": 3,
+        "expected": 3
+      },
+      {
+        "input": "3.5",
+        "expected": 3.5
+      },
+      {
+        "input": 3.0,
+        "expected": 3.0
+      },
+      {
+        "input": 4.2,
+        "expected": 4.2
+      },
+      {
+        "input": "abc",
+        "expected": 0
+      },
+      {
+        "input": "  12  ",
+        "expected": 12
+      },
+      {
+        "input": "12.9abc",
+        "expected": 0
+      },
+      {
+        "input": true,
+        "expected": true
+      }
+    ],
+    "coerce_task_int": [
+      {
+        "input": null,
+        "expected": 0
+      },
+      {
+        "input": "3.9",
+        "expected": 3
+      },
+      {
+        "input": 5.0,
+        "expected": 5
+      },
+      {
+        "input": "x",
+        "expected": 0
+      },
+      {
+        "input": "7",
+        "expected": 7
+      }
+    ],
+    "first_present_value": [
+      {
+        "mapping": {
+          "a": 1,
+          "b": "",
+          "c": null
+        },
+        "keys": [
+          "a",
+          "b",
+          "c"
+        ],
+        "expected": 1
+      },
+      {
+        "mapping": {
+          "a": null,
+          "b": "x",
+          "c": 2
+        },
+        "keys": [
+          "a",
+          "b",
+          "c"
+        ],
+        "expected": "x"
+      },
+      {
+        "mapping": {
+          "a": 0
+        },
+        "keys": [
+          "a",
+          "b"
+        ],
+        "expected": 0
+      },
+      {
+        "mapping": {},
+        "keys": [
+          "a",
+          "b"
+        ],
+        "expected": null
+      },
+      {
+        "mapping": "not a dict",
+        "keys": [
+          "a"
+        ],
+        "expected": null
+      },
+      {
+        "mapping": {
+          "a": ""
+        },
+        "keys": [
+          "a"
+        ],
+        "expected": null
+      }
+    ],
+    "extract_task_indicator_values": [
+      {
+        "indicators": null,
+        "expected": [
+          0,
+          0
+        ]
+      },
+      {
+        "indicators": [],
+        "expected": [
+          0,
+          0
+        ]
+      },
+      {
+        "indicators": [
+          {
+            "type": "watch_time",
+            "cur_value": 30,
+            "limit": 60
+          }
+        ],
+        "expected": [
+          30,
+          60
+        ]
+      },
+      {
+        "indicators": [
+          {
+            "type": "other",
+            "cur_value": 100,
+            "limit": 999
+          },
+          {
+            "type": "live_watch",
+            "cur_value": 30,
+            "limit": 60
+          }
+        ],
+        "expected": [
+          30,
+          60
+        ]
+      },
+      {
+        "indicators": [
+          {
+            "indicator_type": "watch",
+            "cur": 10,
+            "total": 30
+          },
+          {
+            "indicator_id": "duration",
+            "current": 40,
+            "max": 60
+          }
+        ],
+        "expected": [
+          40,
+          60
+        ]
+      },
+      {
+        "indicators": [
+          {
+            "type": "sign",
+            "cur_value": 1,
+            "limit": 1
+          },
+          {
+            "type": "share",
+            "cur_value": 2,
+            "limit": 5
+          }
+        ],
+        "expected": [
+          2,
+          5
+        ]
+      },
+      {
+        "indicators": {
+          "type": "watch_time",
+          "cur_value": 5,
+          "limit": 10
+        },
+        "expected": [
+          5,
+          10
+        ]
+      }
+    ],
+    "extract_checkpoint_progress_values": [
+      {
+        "checkpoint": {
+          "cur_value": 3,
+          "limit": 9
+        },
+        "expected": [
+          3,
+          9
+        ]
+      },
+      {
+        "checkpoint": {
+          "list": [
+            {
+              "type": "watch_time",
+              "cur_value": 20,
+              "limit": 40
+            }
+          ]
+        },
+        "expected": [
+          20,
+          40
+        ]
+      },
+      {
+        "checkpoint": {
+          "indicators": {
+            "type": "duration",
+            "cur": 7,
+            "total": 14
+          }
+        },
+        "expected": [
+          7,
+          14
+        ]
+      },
+      {
+        "checkpoint": {},
+        "expected": [
+          0,
+          0
+        ]
+      }
+    ],
+    "normalize_checkpoint_candidates": [
+      {
+        "values": [
+          {
+            "a": 1
+          },
+          {
+            "b": 2
+          }
+        ],
+        "expected": [
+          {
+            "a": 1
+          },
+          {
+            "b": 2
+          }
+        ]
+      },
+      {
+        "values": [
+          {
+            "check_points": [
+              {
+                "x": 1
+              }
+            ]
+          }
+        ],
+        "expected": [
+          {
+            "check_points": [
+              {
+                "x": 1
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "values": {
+          "items": [
+            {
+              "y": 1
+            }
+          ]
+        },
+        "expected": [
+          {
+            "y": 1
+          }
+        ]
+      },
+      {
+        "values": {
+          "bare": 1
+        },
+        "expected": [
+          {
+            "bare": 1
+          }
+        ]
+      },
+      {
+        "values": null,
+        "expected": []
+      },
+      {
+        "values": "str",
+        "expected": []
+      }
+    ]
+  },
+  "tasks": [
+    {
+      "payload": {
+        "code": 0,
+        "data": {
+          "list": [
+            {
+              "task_id": "t1",
+              "task_name": "观看 60 分钟",
+              "task_status": 0,
+              "indicators": [
+                {
+                  "type": "watch_time",
+                  "cur_value": 30,
+                  "limit": 60
+                }
+              ],
+              "check_points": [
+                {
+                  "sid": "cp1",
+                  "alias": "30min",
+                  "status": 3,
+                  "list": [
+                    {
+                      "type": "watch_time",
+                      "cur_value": 30,
+                      "limit": 30
+                    }
+                  ],
+                  "award_name": "辣条",
+                  "count": 1
+                },
+                {
+                  "sid": "cp2",
+                  "alias": "60min",
+                  "status": 0,
+                  "cur_value": 30,
+                  "limit": 60,
+                  "award_name": "电池",
+                  "count": 2
+                }
+              ],
+              "task_type": 1,
+              "is_need_polling": 1
+            }
+          ]
+        }
+      },
+      "expected": [
+        {
+          "taskId": "t1",
+          "taskName": "观看 60 分钟",
+          "status": 0,
+          "curValue": 30,
+          "limitValue": 60,
+          "checkPoints": [
+            {
+              "sid": "cp1",
+              "alias": "30min",
+              "status": 3,
+              "curValue": 30,
+              "limitValue": 30,
+              "awardName": "辣条",
+              "awardCount": 1,
+              "isCompleted": true
+            },
+            {
+              "sid": "cp2",
+              "alias": "60min",
+              "status": 0,
+              "curValue": 30,
+              "limitValue": 60,
+              "awardName": "电池",
+              "awardCount": 2,
+              "isCompleted": false
+            }
+          ],
+          "taskType": 1,
+          "statisticType": 0,
+          "periodType": 0,
+          "awardType": 0,
+          "canEdit": 0,
+          "isNeedPolling": 1,
+          "isCompleted": false
+        }
+      ],
+      "note": "watch_time + cps"
+    },
+    {
+      "payload": {
+        "code": 0,
+        "data": [
+          {
+            "task_id": "t2",
+            "task_name": "已完成任务",
+            "task_status": 0,
+            "indicators": [
+              {
+                "type": "watch_time",
+                "cur_value": 60,
+                "limit": 60
+              }
+            ]
+          }
+        ]
+      },
+      "expected": [
+        {
+          "taskId": "t2",
+          "taskName": "已完成任务",
+          "status": 0,
+          "curValue": 60,
+          "limitValue": 60,
+          "checkPoints": [],
+          "taskType": 0,
+          "statisticType": 0,
+          "periodType": 0,
+          "awardType": 0,
+          "canEdit": 0,
+          "isNeedPolling": 0,
+          "isCompleted": true
+        }
+      ],
+      "note": "completed by cur>=limit"
+    },
+    {
+      "payload": {
+        "code": 0,
+        "data": {
+          "list": [
+            {
+              "id": "t3",
+              "name": "已领取",
+              "task_status": 6,
+              "limit": 100,
+              "cur_value": 50
+            }
+          ]
+        }
+      },
+      "expected": [
+        {
+          "taskId": "t3",
+          "taskName": "已领取",
+          "status": 6,
+          "curValue": 50,
+          "limitValue": 100,
+          "checkPoints": [],
+          "taskType": 0,
+          "statisticType": 0,
+          "periodType": 0,
+          "awardType": 0,
+          "canEdit": 0,
+          "isNeedPolling": 0,
+          "isCompleted": false
+        }
+      ],
+      "note": "status 6 → claimed/completed"
+    },
+    {
+      "payload": {
+        "code": 0,
+        "data": {
+          "list": [
+            {
+              "task_id": "t4",
+              "task_name": "累积",
+              "accumulative_check_points": [
+                {
+                  "sid": "a1",
+                  "cur_value": 5,
+                  "limit": 10,
+                  "status": 0
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "expected": [
+        {
+          "taskId": "t4",
+          "taskName": "累积",
+          "status": 0,
+          "curValue": 5,
+          "limitValue": 10,
+          "checkPoints": [
+            {
+              "sid": "a1",
+              "alias": "a1",
+              "status": 0,
+              "curValue": 5,
+              "limitValue": 10,
+              "awardName": "",
+              "awardCount": 0,
+              "isCompleted": false
+            }
+          ],
+          "taskType": 0,
+          "statisticType": 0,
+          "periodType": 0,
+          "awardType": 0,
+          "canEdit": 0,
+          "isNeedPolling": 0,
+          "isCompleted": false
+        }
+      ],
+      "note": "accumulative fallback"
+    },
+    {
+      "payload": {
+        "code": -101,
+        "message": "未登录"
+      },
+      "error": true,
+      "note": "error code"
+    }
+  ],
+  "rewards": {
+    "parse_mission_reward_info": [
+      {
+        "payload": {
+          "code": 0,
+          "data": {
+            "task_id": "t1",
+            "task_name": "观看",
+            "status": 0,
+            "message": "",
+            "act_id": "act1",
+            "act_name": "活动",
+            "reward_info": {
+              "award_name": "辣条"
+            }
+          }
+        },
+        "normalized_id": "t1",
+        "expected": {
+          "taskId": "t1",
+          "taskName": "观看",
+          "status": 0,
+          "message": "",
+          "actId": "act1",
+          "actName": "活动",
+          "rewardName": "辣条",
+          "isClaimable": true,
+          "isClaimed": false
+        },
+        "note": "claimable status 0"
+      },
+      {
+        "payload": {
+          "code": 0,
+          "data": {
+            "task_id": "t1",
+            "task_name": "观看",
+            "status": 6,
+            "message": "已领取",
+            "act_id": "act1",
+            "act_name": "活动",
+            "reward_info": {}
+          }
+        },
+        "normalized_id": "t1",
+        "expected": {
+          "taskId": "t1",
+          "taskName": "观看",
+          "status": 6,
+          "message": "已领取",
+          "actId": "act1",
+          "actName": "活动",
+          "rewardName": "",
+          "isClaimable": false,
+          "isClaimed": true
+        },
+        "note": "claimed status 6"
+      },
+      {
+        "payload": {
+          "code": 0,
+          "data": {
+            "status": 2,
+            "message": "不可领"
+          }
+        },
+        "normalized_id": "t9",
+        "expected": {
+          "taskId": "t9",
+          "taskName": "t9",
+          "status": 2,
+          "message": "不可领",
+          "actId": "",
+          "actName": "",
+          "rewardName": "",
+          "isClaimable": false,
+          "isClaimed": false
+        },
+        "note": "missing fields fallback"
+      },
+      {
+        "payload": {
+          "code": -1,
+          "message": "失败"
+        },
+        "normalized_id": "t1",
+        "error": true,
+        "note": "error code"
+      }
+    ],
+    "skipped_reward_claim_result": [
+      {
+        "status": 6,
+        "note": "claimed",
+        "expected": {
+          "taskId": "t1",
+          "taskName": "n",
+          "rewardName": "r",
+          "status": 6,
+          "message": "已领取",
+          "success": true,
+          "skipped": true,
+          "code": null
+        }
+      },
+      {
+        "status": 0,
+        "note": "claimable→null",
+        "expected": null
+      },
+      {
+        "status": 2,
+        "note": "not claimable",
+        "expected": {
+          "taskId": "t1",
+          "taskName": "n",
+          "rewardName": "r",
+          "status": 2,
+          "message": "当前状态不可领取",
+          "success": false,
+          "skipped": true,
+          "code": null
+        }
+      }
+    ],
+    "reward_claim_result_from_payload": [
+      {
+        "info": {
+          "taskId": "t1",
+          "taskName": "n",
+          "status": 0,
+          "message": "",
+          "actId": "a",
+          "actName": "an",
+          "rewardName": "r",
+          "isClaimable": true,
+          "isClaimed": false
+        },
+        "payload": {
+          "code": 0,
+          "message": ""
+        },
+        "expected": {
+          "taskId": "t1",
+          "taskName": "n",
+          "rewardName": "r",
+          "status": 6,
+          "message": "领取成功",
+          "success": true,
+          "skipped": false,
+          "code": 0
+        },
+        "note": "success, empty msg → 领取成功"
+      },
+      {
+        "info": {
+          "taskId": "t1",
+          "taskName": "n",
+          "status": 0,
+          "message": "",
+          "actId": "a",
+          "actName": "an",
+          "rewardName": "r",
+          "isClaimable": true,
+          "isClaimed": false
+        },
+        "payload": {
+          "code": 0,
+          "message": "0"
+        },
+        "expected": {
+          "taskId": "t1",
+          "taskName": "n",
+          "rewardName": "r",
+          "status": 6,
+          "message": "领取成功",
+          "success": true,
+          "skipped": false,
+          "code": 0
+        },
+        "note": "success, msg '0' → 领取成功"
+      },
+      {
+        "info": {
+          "taskId": "t1",
+          "taskName": "n",
+          "status": 0,
+          "message": "",
+          "actId": "a",
+          "actName": "an",
+          "rewardName": "r",
+          "isClaimable": true,
+          "isClaimed": false
+        },
+        "payload": {
+          "code": -702,
+          "message": "频率限制"
+        },
+        "expected": {
+          "taskId": "t1",
+          "taskName": "n",
+          "rewardName": "r",
+          "status": 0,
+          "message": "频率限制",
+          "success": false,
+          "skipped": false,
+          "code": -702
+        },
+        "note": "fail"
+      }
+    ],
+    "build_reward_receive_body": {
+      "info": {
+        "taskId": "t1",
+        "taskName": "n",
+        "status": 0,
+        "message": "",
+        "actId": "a",
+        "actName": "an",
+        "rewardName": "r",
+        "isClaimable": true,
+        "isClaimed": false
+      },
+      "csrf": "bilijct123",
+      "expected": {
+        "task_id": "t1",
+        "activity_id": "a",
+        "activity_name": "an",
+        "task_name": "n",
+        "reward_name": "r",
+        "gaia_vtoken": "",
+        "receive_from": "missionPage",
+        "csrf": "bilijct123",
+        "csrf_token": "bilijct123"
+      }
+    },
+    "failed_reward_claim_result": {
+      "task_id": "tErr",
+      "expected": {
+        "taskId": "tErr",
+        "taskName": "tErr",
+        "rewardName": "",
+        "status": -1,
+        "message": "network down",
+        "success": false,
+        "skipped": false,
+        "code": null
+      }
+    }
+  }
 }
