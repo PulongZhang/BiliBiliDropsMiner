@@ -51,15 +51,17 @@ async function queryStatus() {
   }
 }
 
-async function startMining({ roomId, threadCount = 1 }) {
+async function startMining({ roomId, threadCount = 1, taskIds, taskQueryIntervalSeconds }) {
   if (!roomId) throw new Error("缺少 roomId");
-  await setConfig({ roomId, threadCount, active: true });
+  await setConfig({ roomId, threadCount, taskIds: taskIds || [], taskQueryIntervalSeconds, active: true });
   await ensureOffscreen();
-  console.log(TAG, "→ OFS_START", { roomId, threadCount });
+  console.log(TAG, "→ OFS_START", { roomId, threadCount, taskIds });
   const resp = await chrome.runtime.sendMessage({
     type: "OFS_START",
     roomId,
     threadCount,
+    taskIds: taskIds || [],
+    taskQueryIntervalSeconds,
   });
   // 立即刷新角标，不必等下个 alarm tick
   const st = resp?.ok ? resp.status : null;
@@ -100,6 +102,8 @@ async function runWatchdog() {
         type: "OFS_START",
         roomId: config.roomId,
         threadCount: config.threadCount || 1,
+        taskIds: config.taskIds || [],
+        taskQueryIntervalSeconds: config.taskQueryIntervalSeconds,
       });
     } catch (err) {
       console.warn(TAG, "recreate 失败:", err);
@@ -124,6 +128,8 @@ async function resumeIfNeeded() {
     type: "OFS_START",
     roomId: cfg.roomId,
     threadCount: cfg.threadCount || 1,
+    taskIds: cfg.taskIds || [],
+    taskQueryIntervalSeconds: cfg.taskQueryIntervalSeconds,
   });
 }
 

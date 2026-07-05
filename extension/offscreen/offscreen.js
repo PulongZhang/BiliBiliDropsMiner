@@ -17,7 +17,9 @@ import { HttpClient } from "../lib/http.js";
 import { BiliClient } from "../lib/bili-client.js";
 import { BiliSession } from "../lib/session.js";
 import { SessionManager } from "../lib/session-manager.js";
+import { TaskMonitor } from "../lib/task-monitor.js";
 import { parseWbiKeysFromNav } from "../lib/wbi.js";
+import { normalizeTaskIds } from "../lib/tasks.js";
 
 const TAG = "[BDM-OF]";
 const NAV_URL = "https://api.bilibili.com/x/web-interface/nav";
@@ -77,13 +79,14 @@ async function fetchWbiKeys() {
   return keys;
 }
 
-async function start({ roomId, threadCount = 1 }) {
+async function start({ roomId, threadCount = 1, taskIds, taskQueryIntervalSeconds }) {
   if (engine) {
     logWarn("已有引擎运行中，先停止再重启");
     await stop();
   }
   if (!roomId) throw new Error("缺少 roomId");
   const n = Math.max(1, Math.floor(threadCount));
+  const normalizedTaskIds = normalizeTaskIds(taskIds || []);
 
   const identities = await loadIdentities(n);
   const csrf = await getCsrf();
@@ -122,7 +125,28 @@ async function start({ roomId, threadCount = 1 }) {
     manager.tick().catch((err) => logWarn("tick error:", err));
   }, TICK_INTERVAL_MS);
 
-  engine = { manager, timer, config: { roomId, threadCount: n }, startedAt: Date.now() };
+  // 任务监控 + 自动领奖（仅在有 taskIds 时启用；与心跳共享同一 BiliClient）。
+  let monitor = null;
+  if (normalizedTaskIds.length > 0) {
+    const intervalMs = Math.max(10, Number(taskQueryIntervalSeconds) || 30) * 1000;
+    monitor = new TaskMonitor({
+      client,
+      taskIds: normalizedTaskIds,
+      csrf,
+      intervalMs,
+      log: (lvl, msg) => (lvl === "warn" ? logWarn(msg) : logInfo(msg)),
+    });
+    monitor.start();
+    logInfo(`task monitor on: ${normalizedTaskIds.length} task(s), every ${intervalMs}ms`);
+  }
+
+  engine = {
+    manager,
+    timer,
+    monitor,
+    config: { roomId, threadCount: n, taskIds: normalizedTaskIds },
+    startedAt: Date.now(),
+  };
   logInfo(`engine started: ${n} session(s), stagger ${STAGGER_MS}ms`);
 }
 
@@ -130,6 +154,7 @@ async function stop() {
   if (!engine) return;
   clearInterval(engine.timer);
   engine.manager.stop();
+  engine.monitor?.stop();
   const st = engine.manager.status();
   logInfo(
     `stopped room=${engine.config.roomId} threads=${engine.config.threadCount}` +
@@ -142,12 +167,20 @@ function status() {
   // 用 active 表示引擎是否运行；manager.status() 的 running 是「处于 running 态的
   // 会话数」。两者键名不同，spread 不会互相覆盖（watchdog.badgeFromStatus 依赖此约定）。
   if (!engine) return { active: false };
+  const m = engine.monitor;
   return {
     active: true,
     roomId: engine.config.roomId,
     threadCount: engine.config.threadCount,
     startedAt: engine.startedAt,
     ...engine.manager.status(),
+    taskMonitor: m
+      ? {
+          taskIds: m.taskIds,
+          claimedIds: [...m.claimedIds],
+          lastError: m.lastError ? String(m.lastError.message || m.lastError) : null,
+        }
+      : null,
   };
 }
 
