@@ -1,10 +1,14 @@
 // offscreen/offscreen.js
-// M2 真实集成驱动：在 offscreen document 内构造 HttpClient（真实 fetch + credentials:include）
-// + BiliClient + 单个 BiliSession，setInterval 周期 tick 维持 x25Kn 心跳。
+// 心跳引擎宿主：在 offscreen document 内用 SessionManager 驱动 N 个 BiliSession。
 //
-// 边界说明：签名层（wbi/live-trace/crypto）、HTTP 重试、单会话状态机均已 39 测试绿；
-// 本文件是浏览器 IO 粘合层（chrome.cookies / fetch / setInterval / chrome.runtime），
-// 其「通过标准」是真实 bilibili 服务器接受签名请求并返回 code==0，只能在浏览器里验证。
+// 与 Python miner.py 对齐的关键点：
+//   - 1 个共享 HttpClient（nav/WBI key 只拉一次，账号级缓存）+ 1 个 BiliClient；
+//   - N 个 BiliSession，每个独占 {liveBuvid, liveUuid}（miner.py:57 每会话新建 client，
+//     即每会话独立 buvid/uuid），共享同一 bili_jct(csrf)；
+//   - SessionManager 以 1s stagger 铺开首次 enter（miner.py:49 实测 1s 是 128 线程的下限）。
+//
+// 边界：签名层（wbi/live-trace/crypto）、HTTP 重试、单会话状态机、SessionManager
+// 均已测试绿；本文件是浏览器 IO 粘合层，通过标准为真实服务器接受签名请求并返回 code==0。
 //
 // 已知风险：Referer/Origin/User-Agent 在扩展 fetch 中是 forbidden header，浏览器会丢弃。
 // 若服务器校验 Referer==live.bilibili.com，需在集成期加 declarativeNetRequest 规则覆写。
@@ -12,25 +16,27 @@
 import { HttpClient } from "../lib/http.js";
 import { BiliClient } from "../lib/bili-client.js";
 import { BiliSession } from "../lib/session.js";
+import { SessionManager } from "../lib/session-manager.js";
 import { parseWbiKeysFromNav } from "../lib/wbi.js";
 
 const TAG = "[BDM-OF]";
 const NAV_URL = "https://api.bilibili.com/x/web-interface/nav";
 const BILIBILI_ROOT = "https://www.bilibili.com";
-// ua 作为 x25Kn 签名 payload 的 ua 字段（非 HTTP 头），必须与 Python 客户端一致。
+// ua 作为 x25Kn 签名 payload 的 ua 字段（非 HTTP 头），与 Python 客户端一致。
 const PAYLOAD_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
   "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 const TICK_INTERVAL_MS = 250;
+const STAGGER_MS = 1000;
 
-let engine = null; // { session, timer, config, startedAt }
+let engine = null; // { manager, timer, config, startedAt }
 
 const logInfo = (...a) => console.log(TAG, ...a);
 const logWarn = (...a) => console.warn(TAG, ...a);
 
 // --- 身份生成（对应 cookies.generate_live_buvid + uuid.uuid4）---
 function generateLiveBuvid() {
-  // Python: uuid4().int % 1e16，左侧补零到 16 位。这里取 64 位随机源 % 1e16，
+  // Python: uuid4().int % 1e16，左侧补零到 16 位。这里 64 位随机源 % 1e16，
   // 分布在 [0, 1e16) 内一致（足够唯一），格式与 Python 串完全相同。
   const buf = new BigUint64Array(1);
   crypto.getRandomValues(buf);
@@ -38,12 +44,18 @@ function generateLiveBuvid() {
   return "AUTO" + v.toString().padStart(16, "0");
 }
 
-async function loadIdentity() {
-  const cur = (await chrome.storage.local.get("identity")).identity;
-  if (cur && cur.liveBuvid && cur.liveUuid) return cur;
-  const fresh = { liveBuvid: generateLiveBuvid(), liveUuid: crypto.randomUUID() };
-  await chrome.storage.local.set({ identity: fresh });
-  return fresh;
+/**
+ * 按 index 复用持久化身份，不足则补齐。永不截断已存身份，
+ * 这样 thread_count 在 1↔N 之间来回切换时，已分配的 buvid/uuid 保持稳定。
+ * （Python 实际每次新建 client 即每次新身份；持久化是扩展端的优化，避免重启换脸。）
+ */
+async function loadIdentities(n) {
+  const cur = (await chrome.storage.local.get("identities")).identities || [];
+  while (cur.length < n) {
+    cur.push({ liveBuvid: generateLiveBuvid(), liveUuid: crypto.randomUUID() });
+  }
+  await chrome.storage.local.set({ identities: cur });
+  return cur.slice(0, n);
 }
 
 async function getCsrf() {
@@ -52,7 +64,7 @@ async function getCsrf() {
   return c.value;
 }
 
-// --- WBI keys provider：拉 nav → 解析 img/sub key ---
+// --- WBI keys provider：拉 nav → 解析 img/sub key（账号级，全程共享）---
 async function fetchWbiKeys() {
   const resp = await fetch(NAV_URL, { credentials: "include" });
   if (!resp.ok) throw new Error(`nav HTTP ${resp.status}`);
@@ -67,17 +79,17 @@ async function fetchWbiKeys() {
 
 async function start({ roomId, threadCount = 1 }) {
   if (engine) {
-    logWarn("已有会话运行中，先停止再重启");
+    logWarn("已有引擎运行中，先停止再重启");
     await stop();
   }
   if (!roomId) throw new Error("缺少 roomId");
+  const n = Math.max(1, Math.floor(threadCount));
 
-  const identity = await loadIdentity();
+  const identities = await loadIdentities(n);
   const csrf = await getCsrf();
   logInfo(
-    `start room=${roomId} threadCount=${threadCount}（M2 仅驱动 1）` +
-      ` buvid=${identity.liveBuvid} uuid=${identity.liveUuid}` +
-      ` csrf=${csrf.slice(0, 4)}***`,
+    `start room=${roomId} threads=${n} csrf=${csrf.slice(0, 4)}***` +
+      ` buvid[0]=${identities[0].liveBuvid} ... buvid[${n - 1}]=${identities[n - 1].liveBuvid}`,
   );
 
   const http = new HttpClient({
@@ -86,50 +98,58 @@ async function start({ roomId, threadCount = 1 }) {
   });
   const client = new BiliClient({ http, userAgent: PAYLOAD_UA });
 
-  const session = new BiliSession({
-    id: "m2-0",
-    client,
-    room: { roomId },
-    liveBuvid: identity.liveBuvid,
-    liveUuid: identity.liveUuid,
-    userAgent: PAYLOAD_UA,
-    csrf,
-    log: (lvl, msg) => (lvl === "warn" ? logWarn(msg) : logInfo(msg)),
+  const sessions = identities.map((id, i) => {
+    const s = new BiliSession({
+      id: `s${i}`,
+      client,
+      room: { roomId },
+      liveBuvid: id.liveBuvid,
+      liveUuid: id.liveUuid,
+      userAgent: PAYLOAD_UA,
+      csrf,
+      log: (lvl, msg) => (lvl === "warn" ? logWarn(msg) : logInfo(msg)),
+    });
+    return s;
   });
-  session.start();
+
+  const manager = new SessionManager({
+    sessions,
+    staggerMs: STAGGER_MS,
+  });
+  manager.start();
 
   const timer = setInterval(() => {
-    session.tick().catch((err) => logWarn("tick error:", err));
+    manager.tick().catch((err) => logWarn("tick error:", err));
   }, TICK_INTERVAL_MS);
 
-  engine = { session, timer, config: { roomId, threadCount }, startedAt: Date.now() };
-  logInfo("engine started");
+  engine = { manager, timer, config: { roomId, threadCount: n }, startedAt: Date.now() };
+  logInfo(`engine started: ${n} session(s), stagger ${STAGGER_MS}ms`);
 }
 
 async function stop() {
   if (!engine) return;
   clearInterval(engine.timer);
-  engine.session.stop();
+  engine.manager.stop();
+  const st = engine.manager.status();
   logInfo(
-    `stopped room=${engine.config.roomId} heartbeats=${engine.session.heartbeatCount}`,
+    `stopped room=${engine.config.roomId} threads=${engine.config.threadCount}` +
+      ` heartbeats=${st.heartbeats}`,
   );
   engine = null;
 }
 
 function status() {
   if (!engine) return { running: false };
-  const s = engine.session;
   return {
     running: true,
     roomId: engine.config.roomId,
+    threadCount: engine.config.threadCount,
     startedAt: engine.startedAt,
-    state: s.state,
-    heartbeats: s.heartbeatCount,
-    lastError: s.lastError ? String(s.lastError.message || s.lastError) : null,
+    ...engine.manager.status(),
   };
 }
 
-// 仅接受带 OFS_ 前缀的消息（来自 background 转发）；popup 直发的 START 会被忽略。
+// 只接受 OFS_ 前缀消息（来自 background 转发）；popup 直发的 START 会被忽略。
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   (async () => {
     try {
@@ -151,4 +171,4 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   return true; // 异步响应
 });
 
-logInfo("offscreen loaded（M2 单会话驱动）");
+logInfo("offscreen loaded（SessionManager 驱动）");
