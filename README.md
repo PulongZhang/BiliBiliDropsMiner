@@ -14,7 +14,7 @@ B 站直播掉宝/观看时长挂机的 **Chrome/Edge 浏览器扩展（MV3）**
    ```
 2. 打开 `chrome://extensions`（Edge 用 `edge://extensions`）→ 开启 **开发者模式**
 3. **「加载已解压的扩展程序」** → 选择仓库下的 `extension/` 目录
-4. 登录 [bilibili.com](https://www.bilibili.com)
+4. 扩展自动复用当前浏览器的 [bilibili.com](https://www.bilibili.com) 登录态，已登录即可直接使用
 5. 点扩展图标 → 打开目标直播间后点 **「识别当前页」**，或填写房间号后点 **「按房间获取任务」** → 填会话数（默认 100）→ **启动**
 
 心跳引擎在 offscreen document 中常驻运行（关掉标签页也不影响），看门狗自动续跑。

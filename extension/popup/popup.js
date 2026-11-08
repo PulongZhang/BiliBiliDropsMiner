@@ -15,6 +15,7 @@ const stopBtn = document.getElementById("stopBtn");
 const statusEl = document.getElementById("status");
 const badgeEl = document.getElementById("badgeState");
 const accountEl = document.getElementById("account");
+const loginLinkEl = document.getElementById("loginLink");
 const autoClaimEl = document.getElementById("autoClaimRewards");
 const messageEl = document.getElementById("message");
 const taskProgressEl = document.getElementById("taskProgress");
@@ -77,10 +78,11 @@ function savePreferences() {
 
 function renderAccount(account) {
   if (!account) return;
+  loginLinkEl.hidden = account.kind !== "invalid";
   accountEl.textContent = account.kind === "valid"
-    ? `已登录：${account.uname}（UID ${account.uid}）`
+    ? `正在使用浏览器登录态：${account.uname}（UID ${account.uid}）`
     : account.kind === "invalid" ? "未登录或登录已失效"
-    : account.kind === "error" ? account.message : "正在检查账号…";
+    : account.kind === "error" ? account.message : "正在读取浏览器登录态…";
 }
 
 function formatProgress(task, label) {
