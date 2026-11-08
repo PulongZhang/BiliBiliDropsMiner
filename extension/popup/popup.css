@@ -55,7 +55,7 @@ form { padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
 }
 
 .tools { display: flex; flex-wrap: wrap; gap: 6px; }
-.tools button, .account-panel button {
+.tools button {
   align-self: flex-start;
   background: transparent;
   border: 1px solid var(--border);
@@ -67,7 +67,6 @@ form { padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
 }
 
 .account-panel, .task-panel { padding: 10px 14px; border-bottom: 1px solid var(--border); }
-.account-panel > div { display: flex; gap: 10px; align-items: center; margin-top: 4px; }
 .account-panel a { color: var(--accent); }
 .checkbox { display: flex; gap: 6px; align-items: center; }
 button:disabled { opacity: 0.5; cursor: default; }

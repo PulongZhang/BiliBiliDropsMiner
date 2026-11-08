@@ -14,8 +14,7 @@ const startBtn = document.getElementById("startBtn");
 const stopBtn = document.getElementById("stopBtn");
 const statusEl = document.getElementById("status");
 const badgeEl = document.getElementById("badgeState");
-const accountEl = document.getElementById("account");
-const loginLinkEl = document.getElementById("loginLink");
+const accountPanelEl = document.getElementById("accountPanel");
 const autoClaimEl = document.getElementById("autoClaimRewards");
 const messageEl = document.getElementById("message");
 const taskProgressEl = document.getElementById("taskProgress");
@@ -78,11 +77,7 @@ function savePreferences() {
 
 function renderAccount(account) {
   if (!account) return;
-  loginLinkEl.hidden = account.kind !== "invalid";
-  accountEl.textContent = account.kind === "valid"
-    ? `正在使用浏览器登录态：${account.uname}（UID ${account.uid}）`
-    : account.kind === "invalid" ? "未登录或登录已失效"
-    : account.kind === "error" ? account.message : "正在读取浏览器登录态…";
+  accountPanelEl.hidden = account.kind !== "invalid";
 }
 
 function formatProgress(task, label) {
@@ -270,11 +265,6 @@ async function refreshAccount() {
   if (resp?.ok) renderAccount(resp.account);
   else showMessage(resp?.error || "账号检查失败");
 }
-
-document.getElementById("checkAccount").addEventListener("click", async () => {
-  await refreshAccount();
-  await refreshStatus();
-});
 
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
