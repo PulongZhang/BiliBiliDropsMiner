@@ -5,6 +5,8 @@
 - 作者：与用户协作（brainstorming）
 - 关联代码：`bilibili_drops_miner/`（Python 原版，已验证可用）
 
+后续适配见[主分支功能同步决策](../../../.agents/notes/implemented/feature/2026-11-08-sync-main-to-extension.md)：账号失效保护、任务发现与热更新、聚合任务领奖、进度及领奖结果展示以该记录和当前实现为准。
+
 ---
 
 ## 1. 背景与动机

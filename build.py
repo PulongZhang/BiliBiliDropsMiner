@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import os
+from pathlib import Path
+import shutil
 import subprocess
 import sys
+import tempfile
 from typing import Iterable
 
 
@@ -15,7 +19,6 @@ def ensure_pyinstaller() -> None:
 
 
 def format_cmd(cmd: list[str]) -> str:
-    # Windows 下可读性更好
     return subprocess.list2cmdline(cmd)
 
 
@@ -50,6 +53,21 @@ def build(
     if windowed:
         cmd.append("--windowed")
 
+    if windowed and sys.platform == "darwin":
+        icon_path = Path("img/app.icns")
+        if icon_path.exists():
+            cmd.extend(["--icon", str(icon_path)])
+        cmd.extend(
+            [
+                "--osx-bundle-identifier",
+                "com.mi0e.BiliBiliDropsMiner",
+            ]
+        )
+    elif windowed and sys.platform == "win32":
+        icon_path = Path("img/app.ico")
+        if icon_path.exists():
+            cmd.extend(["--icon", str(icon_path)])
+
     if debug:
         cmd.extend(["--log-level", "DEBUG"])
 
@@ -62,10 +80,39 @@ def build(
     print(format_cmd(cmd))
     subprocess.check_call(cmd)
 
-    if onefile:
-        print(f"Done: dist/{name}.exe")
+    if windowed and sys.platform == "darwin":
+        print(f"Done: dist/{name}.app")
+    elif onefile:
+        suffix = ".exe" if sys.platform == "win32" else ""
+        print(f"Done: dist/{name}{suffix}")
     else:
         print(f"Done: dist/{name}/")
+
+
+def create_macos_dmg(app_name: str) -> None:
+    app_path = Path("dist") / f"{app_name}.app"
+    if not app_path.exists():
+        raise FileNotFoundError(f"macOS app not found: {app_path}")
+    dmg_path = Path("dist") / f"{app_name}-macOS.dmg"
+    with tempfile.TemporaryDirectory(prefix="bilibili-dmg-") as temp_dir:
+        staging_dir = Path(temp_dir)
+        shutil.copytree(app_path, staging_dir / app_path.name, symlinks=True)
+        os.symlink("/Applications", staging_dir / "Applications")
+        subprocess.check_call(
+            [
+                "hdiutil",
+                "create",
+                "-volname",
+                app_name,
+                "-srcfolder",
+                str(staging_dir),
+                "-ov",
+                "-format",
+                "UDZO",
+                str(dmg_path),
+            ]
+        )
+    print(f"Done: {dmg_path}")
 
 
 def parse_args() -> argparse.Namespace:
@@ -93,7 +140,18 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="enable PyInstaller debug log output.",
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--dmg",
+        action="store_true",
+        help="also create a DMG after the macOS GUI build.",
+    )
+    args = parser.parse_args()
+    if args.dmg:
+        if sys.platform != "darwin":
+            parser.error("--dmg is only available on macOS")
+        if args.target not in ("gui", "all"):
+            parser.error("--dmg requires --target gui or --target all")
+    return args
 
 
 def main() -> None:
@@ -133,10 +191,11 @@ def main() -> None:
         "selenium",
     ]
 
+    gui_app_name = "Bilibili Drops Miner"
     if args.target in ("gui", "all"):
         build(
             "bilibili_gui.py",
-            "bilibili-drops-miner-gui",
+            gui_app_name,
             windowed=True,
             onefile=False,
             clean=args.clean,
@@ -144,6 +203,8 @@ def main() -> None:
             debug=args.debug,
             extra_args=gui_extra_args,
         )
+        if args.dmg:
+            create_macos_dmg(gui_app_name)
 
     if args.target in ("cli", "all"):
         build(

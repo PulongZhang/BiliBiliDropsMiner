@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import sys
+
 from PySide6.QtGui import QFont
+from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import QApplication
 
 
@@ -80,9 +83,16 @@ APP_STYLE_SHEET = """
 
 
 def configure_qt_app(app: QApplication) -> None:
+    app.setApplicationName("Bilibili 直播掉宝助手")
+    app.setOrganizationName("BiliBiliDropsMiner")
     app.setStyle("Fusion")
-    default_font = QFont("Segoe UI", 10)
-    # Fall back to Microsoft YaHei for CJK glyphs on Windows.
+    if sys.platform == "darwin":
+        default_font = QFont(".AppleSystemUIFont", 10)
+    elif sys.platform == "win32":
+        default_font = QFont("Segoe UI", 10)
+    else:
+        default_font = QFontDatabase.systemFont(QFontDatabase.GeneralFont)
+        default_font.setPointSize(10)
     default_font.setStyleStrategy(QFont.PreferAntialias)
     app.setFont(default_font)
     app.setStyleSheet(APP_STYLE_SHEET)

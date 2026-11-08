@@ -113,3 +113,23 @@ test("isRateLimited detects -702 / -509 / 频率 / 频繁", () => {
   assert.equal(isRateLimited({ code: 0, message: "ok" }), false);
   assert.equal(isRateLimited({}), false);
 });
+
+test("rate-limited signed requests do not refresh WBI or immediately retry", async () => {
+  for (const method of ["signedGetJson", "signedPostJson", "signedPostQueryJson", "signedPostFormJson"]) {
+    const client = makeClient([{ payload: { code: -509, message: "请求频繁" } }]);
+    const payload = await client[method]("https://x/api", {});
+    assert.equal(payload.code, -509);
+    assert.equal(client.fetch.calls.length, 1, method);
+  }
+});
+
+test("an aborted request is never retried", async () => {
+  let calls = 0;
+  const client = new HttpClient({
+    fetchImpl: async () => { calls++; throw new DOMException("Stopped", "AbortError"); },
+    wbiKeysProvider: async () => fixedKeys,
+    sleep: async () => {},
+  });
+  await assert.rejects(client.signedGetJson("https://x/api", {}), { name: "AbortError" });
+  assert.equal(calls, 1);
+});

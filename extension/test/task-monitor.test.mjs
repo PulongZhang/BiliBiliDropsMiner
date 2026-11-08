@@ -205,3 +205,92 @@ test("snapshot diff fires onProgress only on change", async () => {
   await m._runOnce(); // cur 8 → 事件
   assert.equal(progressEvents.length, 2);
 });
+
+test("aggregate task: completed checkpoints claim their own SID while later checkpoints are incomplete", async () => {
+  const progress = { taskId: "parent", status: 0, isCompleted: false, checkPoints: [
+    { sid: "one", status: 3, isCompleted: true },
+    { sid: "two", status: 0, isCompleted: false },
+    { sid: "claimed", status: 6, isCompleted: true },
+  ] };
+  assert.deepEqual(selectClaimableTasks([progress, { ...baseProgresses.t1, taskId: "one" }], []), ["one"]);
+  const client = fakeClient({ progresses: { parent: progress }, infos: { one: { taskId: "one" } } });
+  const m = new TaskMonitor({ client, taskIds: ["parent"], csrf: "jct", sleep: async () => {} });
+  await m._runOnce();
+  assert.deepEqual(client.calls.receiveMissionReward, ["one"]);
+  assert.deepEqual(m.progresses, [progress]);
+  assert.equal(m.claimResults[0].taskId, "one");
+});
+
+test("auto claim can be disabled and updated task IDs are used without replacing the monitor", async () => {
+  const client = fakeClient({ progresses: baseProgresses, infos: baseInfos });
+  const m = new TaskMonitor({ client, taskIds: ["t1"], csrf: "jct", autoClaimRewards: false });
+  await m._runOnce();
+  assert.deepEqual(client.calls.receiveMissionReward, []);
+  m.update({ taskIds: ["t2"], intervalMs: 15000, autoClaimRewards: true });
+  await m._runOnce();
+  assert.deepEqual(client.calls.getTaskProgress.at(-1).taskIds, ["t2"]);
+  assert.equal(m.intervalMs, 15000);
+});
+
+test("stopping or editing tasks during a slow query prevents stale progress and claims", async () => {
+  for (const action of ["stop", "update"]) {
+    let resolveQuery;
+    const client = fakeClient({ progresses: baseProgresses, infos: baseInfos });
+    client.getTaskProgress = () => new Promise((resolve) => { resolveQuery = resolve; });
+    const m = new TaskMonitor({ client, taskIds: ["t1"], csrf: "jct" });
+    const pending = m._runOnce();
+    if (action === "stop") m.stop();
+    else m.update({ taskIds: ["t2"] });
+    resolveQuery([baseProgresses.t1]);
+    await pending;
+    assert.deepEqual(client.calls.receiveMissionReward, [], action);
+    assert.deepEqual(m.progresses, [], action);
+  }
+});
+
+test("stopping during reward info prevents the subsequent receive request", async () => {
+  let resolveInfo;
+  const client = fakeClient({ progresses: baseProgresses, infos: baseInfos });
+  client.getMissionRewardInfo = () => new Promise((resolve) => { resolveInfo = resolve; });
+  const m = new TaskMonitor({ client, taskIds: ["t1"], csrf: "jct" });
+  const pending = m._runOnce();
+  await new Promise((resolve) => setImmediate(resolve));
+  m.stop();
+  resolveInfo(baseInfos.t1);
+  await pending;
+  assert.deepEqual(client.calls.receiveMissionReward, []);
+});
+
+test("manual refresh and manual claim remain serialized behind an existing query", async () => {
+  const client = fakeClient({ progresses: baseProgresses, infos: baseInfos });
+  let resolveFirst;
+  let queries = 0;
+  client.getTaskProgress = async () => {
+    queries++;
+    if (queries === 1) await new Promise((resolve) => { resolveFirst = resolve; });
+    return [baseProgresses.t1];
+  };
+  const m = new TaskMonitor({ client, taskIds: ["t1"], csrf: "jct", autoClaimRewards: false });
+  const initial = m._runOnce();
+  const refreshed = m.refresh();
+  const claimed = m.refresh({ claimAll: true });
+  resolveFirst();
+  await Promise.all([initial, refreshed, claimed]);
+  assert.equal(queries, 3);
+  assert.deepEqual(client.calls.receiveMissionReward, ["t1"]);
+});
+
+test("reward batches keep the 1.2s gap and reset tasks may claim in the next period", async () => {
+  const progresses = { ...baseProgresses, t2: { ...baseProgresses.t2, isCompleted: true } };
+  const client = fakeClient({ progresses, infos: { ...baseInfos, t2: { taskId: "t2" } } });
+  const sleeps = [];
+  const m = new TaskMonitor({ client, taskIds: ["t1", "t2"], csrf: "jct", sleep: async (ms) => { sleeps.push(ms); } });
+  await m._runOnce();
+  assert.deepEqual(client.calls.receiveMissionReward, ["t1", "t2"]);
+  assert.deepEqual(sleeps, [1200]);
+  progresses.t1 = { ...baseProgresses.t1, isCompleted: false, curValue: 0 };
+  await m._runOnce();
+  progresses.t1 = baseProgresses.t1;
+  await m._runOnce();
+  assert.deepEqual(client.calls.receiveMissionReward, ["t1", "t2", "t1"]);
+});

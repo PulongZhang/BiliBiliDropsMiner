@@ -13,7 +13,7 @@
 
 body {
   margin: 0;
-  width: 340px;
+  width: 380px;
   font: 13px/1.5 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
   color: var(--fg);
   background: var(--bg);
@@ -54,7 +54,8 @@ form { padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
   font: inherit;
 }
 
-#detect {
+.tools { display: flex; flex-wrap: wrap; gap: 6px; }
+.tools button, .account-panel button {
   align-self: flex-start;
   background: transparent;
   border: 1px solid var(--border);
@@ -64,6 +65,15 @@ form { padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
   cursor: pointer;
   color: var(--muted);
 }
+
+.account-panel, .task-panel { padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.account-panel > div { display: flex; gap: 10px; align-items: center; margin-top: 4px; }
+.account-panel a { color: var(--accent); }
+.checkbox { display: flex; gap: 6px; align-items: center; }
+button:disabled { opacity: 0.5; cursor: default; }
+#message { margin: 0; padding: 8px 14px; color: var(--fg); overflow-wrap: anywhere; }
+.task-panel pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; max-height: 200px; overflow-y: auto; }
+summary { cursor: pointer; color: var(--accent); }
 
 textarea {
   resize: vertical;

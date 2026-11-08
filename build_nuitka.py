@@ -9,7 +9,7 @@ from typing import Iterable
 
 
 OUTPUT_DIR = Path("dist-nuitka")
-ICON_PATH = Path("img/app.ico")
+ICON_PATH = Path("img/app.icns" if sys.platform == "darwin" else "img/app.ico")
 
 UNUSED_OPTIONAL_EXCLUDES = [
     "IPython",
@@ -47,20 +47,26 @@ def build(
         "--standalone",
         "--assume-yes-for-downloads",
         f"--output-dir={OUTPUT_DIR}",
-        f"--output-filename={output_name}.exe",
+        f"--output-filename={output_name}{'.exe' if sys.platform == 'win32' else ''}",
     ]
 
-    if ICON_PATH.exists():
+    if ICON_PATH.exists() and sys.platform == "win32":
         cmd.append(f"--windows-icon-from-ico={ICON_PATH}")
 
     if windowed:
-        cmd.extend(
-            [
-                "--windows-console-mode=disable",
-                "--enable-plugin=pyside6",
-                "--include-package=selenium",
-            ]
-        )
+        cmd.extend(["--enable-plugin=pyside6", "--include-package=selenium"])
+        if sys.platform == "darwin":
+            cmd.extend(
+                [
+                    "--macos-create-app-bundle",
+                    "--macos-app-name=Bilibili Drops Miner",
+                    "--macos-signed-app-name=com.mi0e.BiliBiliDropsMiner",
+                ]
+            )
+            if ICON_PATH.exists():
+                cmd.append(f"--macos-app-icon={ICON_PATH}")
+        elif sys.platform == "win32":
+            cmd.append("--windows-console-mode=disable")
 
     extend_nofollow_args(cmd, UNUSED_OPTIONAL_EXCLUDES)
     cmd.append("--nofollow-import-to=apprise")
@@ -71,8 +77,13 @@ def build(
     print(format_cmd(cmd))
     subprocess.check_call(cmd)
 
-    source_dir = OUTPUT_DIR / f"{Path(entry).stem}.dist"
-    target_dir = OUTPUT_DIR / output_name
+    if windowed and sys.platform == "darwin":
+        # --macos-create-app-bundle 输出 <entry>.app 而非 <entry>.dist
+        source_dir = OUTPUT_DIR / f"{Path(entry).stem}.app"
+        target_dir = OUTPUT_DIR / f"{output_name}.app"
+    else:
+        source_dir = OUTPUT_DIR / f"{Path(entry).stem}.dist"
+        target_dir = OUTPUT_DIR / output_name
     if source_dir == target_dir:
         return
     if not source_dir.exists():
@@ -80,7 +91,7 @@ def build(
     if target_dir.exists():
         shutil.rmtree(target_dir)
     source_dir.rename(target_dir)
-    print(f"Done: {target_dir}/")
+    print(f"Done: {target_dir}")
 
 
 def parse_args() -> argparse.Namespace:
@@ -102,7 +113,7 @@ def main() -> None:
     if args.target in ("gui", "all"):
         build(
             "bilibili_gui.py",
-            "bilibili-drops-miner-gui",
+            "Bilibili Drops Miner",
             windowed=True,
         )
 

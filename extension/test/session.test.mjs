@@ -136,3 +136,15 @@ test("stop makes tick a no-op", async () => {
   assert.equal(client.calls.length, 0);
   assert.equal(s.state, "idle");
 });
+
+test("stop during room entry prevents a late x25Kn enter request", async () => {
+  const { s, client } = setup();
+  let resolveEntry;
+  client.roomEntryAction = () => new Promise((resolve) => { resolveEntry = resolve; });
+  const pending = s.tick();
+  s.stop();
+  resolveEntry();
+  await pending;
+  assert.equal(client.calls.length, 0);
+  assert.equal(s.state, "idle");
+});

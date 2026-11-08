@@ -11,11 +11,20 @@
     <span id="badgeState" class="badge">—</span>
   </header>
 
+  <section class="account-panel">
+    <span id="account">正在检查账号…</span>
+    <div><a href="https://passport.bilibili.com/login" target="_blank" rel="noreferrer">登录 / 切换账号</a>
+      <button type="button" id="checkAccount">重新检查</button></div>
+  </section>
+
   <form id="form">
     <div class="row">
       <label for="roomId">房间 ID</label>
       <input id="roomId" type="number" min="1" required />
-      <button type="button" id="detect" title="从当前打开的直播间标签页读取房间号和掉宝任务 ID">识别</button>
+      <div class="tools">
+        <button type="button" id="detect" title="从当前直播间读取房间号和任务 ID">识别当前页</button>
+        <button type="button" id="discover" title="按房间 ID 获取静态页面，无需打开直播间">按房间获取任务</button>
+      </div>
     </div>
 
     <div class="row">
@@ -24,9 +33,11 @@
     </div>
 
     <div class="row">
-      <label for="taskIds">任务 ID<span>逗号或换行分隔，留空则只挂时长不领奖</span></label>
+      <label for="taskIds">任务 ID<span>逗号或换行分隔；运行中也可识别、编辑并应用</span></label>
       <textarea id="taskIds" rows="3" placeholder="可选，例如 123456, 789012"></textarea>
     </div>
+
+    <label class="checkbox"><input id="autoClaimRewards" type="checkbox" checked /> 自动领取已完成奖励</label>
 
     <div class="row">
       <label for="taskInterval">任务查询间隔（秒）</label>
@@ -39,7 +50,20 @@
     </div>
   </form>
 
+  <p id="message" role="status" hidden></p>
   <pre id="status">加载中…</pre>
+  <section class="task-panel">
+    <div class="tools">
+      <button type="button" id="applyTasks">应用任务设置</button>
+      <button type="button" id="refreshTasks">刷新进度</button>
+      <button type="button" id="claimRewards">领取奖励</button>
+    </div>
+    <pre id="taskProgress">尚无任务进度</pre>
+    <details id="rewardDetails">
+      <summary id="rewardSummary">领奖结果（0）</summary>
+      <pre id="rewardResults">暂无领取记录</pre>
+    </details>
+  </section>
 
   <script type="module" src="popup.js"></script>
 </body>

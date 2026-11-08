@@ -53,6 +53,7 @@ export class HttpClient {
       try {
         return await requestFn();
       } catch (err) {
+        if (err.name === "AbortError") throw err;
         if (attempt >= total - 1) throw err;
         await this.sleep(TRANSIENT_DELAYS_MS[attempt]);
       }
@@ -73,7 +74,11 @@ export class HttpClient {
       if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${method} ${url}`);
       payload = await resp.json();
       if (payload.code === 0) return payload;
-      if (attempt === 0 && retryOnWbiMiss) this.clearWbiCache();
+      if (attempt === 0 && retryOnWbiMiss && !isRateLimited(payload)) {
+        this.clearWbiCache();
+        continue;
+      }
+      break;
     }
     return payload;
   }

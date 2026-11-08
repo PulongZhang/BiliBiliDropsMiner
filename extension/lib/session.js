@@ -80,7 +80,10 @@ export class BiliSession {
     try {
       const id = this._identity();
       await this.client.roomEntryAction(this.room.roomId, id);
-      this.session = await this.client.liveTraceEnter(this.room.roomId, id);
+      if (this.stopped) return;
+      const session = await this.client.liveTraceEnter(this.room.roomId, id);
+      if (this.stopped) return;
+      this.session = session;
       this.state = "running";
       this.nextDueAt = this.now() + this.session.heartbeatInterval * 1000;
       this.lastError = null;
@@ -92,7 +95,9 @@ export class BiliSession {
 
   async _doHeartbeat() {
     try {
-      this.session = await this.client.liveTraceHeartbeat(this.session, this._identity());
+      const session = await this.client.liveTraceHeartbeat(this.session, this._identity());
+      if (this.stopped) return;
+      this.session = session;
       this.heartbeatCount += 1;
       this.state = "running";
       this.nextDueAt = this.now() + this.session.heartbeatInterval * 1000;
@@ -103,6 +108,7 @@ export class BiliSession {
   }
 
   _onFail(err, action) {
+    if (this.stopped) return;
     this.lastError = err;
     this.session = null;
     this.state = "waiting";

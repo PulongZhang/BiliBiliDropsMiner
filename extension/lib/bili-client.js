@@ -11,7 +11,7 @@ import {
   buildX25knSignature,
 } from "./live-trace.js";
 import { isRateLimited } from "./http.js";
-import { normalizeTaskIds, parseTaskProgressPayload } from "./tasks.js";
+import { normalizeTaskIds, parseTaskProgressPayload, resolveRewardTaskIds } from "./tasks.js";
 import {
   MISSION_RETRY_DELAYS,
   normalizeTaskId,
@@ -199,16 +199,25 @@ export class BiliClient {
   /** 批量领取：逐任务 info → receive，任务间停顿 REWARD_CLAIM_INTERVAL_SECONDS。 */
   async receiveAllMissionRewards(taskIds, { csrf }) {
     const normalized = normalizeTaskIds(taskIds);
+    if (normalized.length === 0) return [];
+    let progresses = [];
+    try {
+      progresses = await this.getTaskProgress(normalized, { csrf });
+    } catch (err) {
+      if (err.name === "AbortError") throw err;
+    }
+    const rewardIds = resolveRewardTaskIds(normalized, progresses);
     const results = [];
-    for (let index = 0; index < normalized.length; index++) {
-      const taskId = normalized[index];
+    for (let index = 0; index < rewardIds.length; index++) {
+      const taskId = rewardIds[index];
       try {
         const info = await this.getMissionRewardInfo(taskId);
         results.push(await this.receiveMissionReward(info, { csrf }));
       } catch (err) {
+        if (err.name === "AbortError") throw err;
         results.push(failedRewardClaimResult(taskId, err));
       }
-      if (index < normalized.length - 1) {
+      if (index < rewardIds.length - 1) {
         await this.sleep(REWARD_CLAIM_INTERVAL_SECONDS * 1000);
       }
     }

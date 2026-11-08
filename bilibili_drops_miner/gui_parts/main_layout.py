@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import sys
+
 from collections.abc import Callable
 from dataclasses import dataclass
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QFontDatabase
 from PySide6.QtWidgets import (
     QCheckBox,
     QFrame,
@@ -25,9 +27,11 @@ from bilibili_drops_miner.gui_parts.styles import CARD_STYLE, BUTTON_STYLES
 
 @dataclass(slots=True)
 class MainWindowCallbacks:
+    qr_login_cookie: Callable[..., None]
     auto_fetch_cookie: Callable[..., None]
     auto_fetch_room_id: Callable[..., None]
-    auto_fetch_task_ids: Callable[..., None]
+    auto_fetch_task_ids_mode1: Callable[..., None]
+    auto_fetch_task_ids_mode2: Callable[..., None]
     start: Callable[..., None]
     stop: Callable[..., None]
     load_config: Callable[..., None]
@@ -55,6 +59,8 @@ class MainWindowWidgets:
     log_card: QFrame
     log_toggle_btn: QPushButton
     claim_rewards_btn: QPushButton
+    auto_claim_rewards_check: QCheckBox
+    account_status_label: QLabel
 
 
 def build_main_window_layout(
@@ -86,28 +92,34 @@ def build_main_window_layout(
     cookie_edit = _make_line_edit("必填: SESSDATA=xxx; bili_jct=xxx; DedeUserID=xxx")
     rooms_edit = _make_line_edit("必填: 直播间号，多个用逗号分隔")
     rooms_edit.setText("23612045")
-    task_ids_edit = _make_line_edit("可留空: F12 从 totalv2 请求中提取 task_ids")
+    task_ids_edit = _make_line_edit("可留空: 可用静态解析或浏览器嗅探自动获取")
     notify_urls_edit = _make_line_edit("可留空: 通知 URL，如 gotify://host/token")
 
     config_layout.addLayout(
         _build_labeled_row(
             "Cookie",
             cookie_edit,
-            ("自动获取", "purple", callbacks.auto_fetch_cookie),
+            (
+                ("扫码登录", "blue", callbacks.qr_login_cookie),
+                ("自动获取", "purple", callbacks.auto_fetch_cookie),
+            ),
         )
     )
     config_layout.addLayout(
         _build_labeled_row(
             "房间号",
             rooms_edit,
-            ("自动获取", "blue", callbacks.auto_fetch_room_id),
+            (("自动获取", "blue", callbacks.auto_fetch_room_id),),
         )
     )
     config_layout.addLayout(
         _build_labeled_row(
             "任务 ID",
             task_ids_edit,
-            ("自动获取", "blue", callbacks.auto_fetch_task_ids),
+            (
+                ("自动获取模式1", "blue", callbacks.auto_fetch_task_ids_mode1),
+                ("自动获取模式2", "purple", callbacks.auto_fetch_task_ids_mode2),
+            ),
         )
     )
     config_layout.addLayout(_build_labeled_row("通知 URL", notify_urls_edit))
@@ -173,7 +185,16 @@ def build_main_window_layout(
     task_title.setFont(task_title_font)
     task_title.setStyleSheet("color:#f5f6f8;")
     task_header.addWidget(task_title)
+    account_status_label = QLabel("账号：未填写 Cookie")
+    account_status_label.setTextFormat(Qt.PlainText)
+    account_status_label.setStyleSheet("color:#9aa0a6;")
+    task_header.addWidget(account_status_label)
     task_header.addStretch(1)
+    auto_claim_rewards_check = QCheckBox("自动领取")
+    auto_claim_rewards_check.setToolTip(
+        "检测到任务达到 100% 后自动领取；领取失败会在后续刷新时重试"
+    )
+    task_header.addWidget(auto_claim_rewards_check)
     claim_rewards_btn = _make_button("领取奖励", "blue", callbacks.claim_rewards)
     task_header.addWidget(claim_rewards_btn)
     task_header.addWidget(_make_button("手动刷新", "", callbacks.refresh_tasks))
@@ -181,7 +202,13 @@ def build_main_window_layout(
 
     task_text = QPlainTextEdit()
     task_text.setReadOnly(True)
-    task_text.setFont(QFont("Consolas", 10))
+    fixed_font = QFontDatabase.systemFont(QFontDatabase.FixedFont)
+    if sys.platform == "darwin":
+        fixed_font.setFamily("Menlo")
+    elif sys.platform == "win32":
+        fixed_font.setFamily("Consolas")
+    fixed_font.setPointSize(10)
+    task_text.setFont(fixed_font)
     task_text.setLineWrapMode(QPlainTextEdit.NoWrap)
     task_text.setMinimumHeight(160)
     task_text.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -214,7 +241,7 @@ def build_main_window_layout(
 
     log_text = QPlainTextEdit()
     log_text.setReadOnly(True)
-    log_text.setFont(QFont("Consolas", 10))
+    log_text.setFont(fixed_font)
     log_text.setMaximumBlockCount(5000)
     log_text.setMinimumHeight(160)
     log_text.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -239,6 +266,8 @@ def build_main_window_layout(
         log_card=log_card,
         log_toggle_btn=log_toggle_btn,
         claim_rewards_btn=claim_rewards_btn,
+        auto_claim_rewards_check=auto_claim_rewards_check,
+        account_status_label=account_status_label,
     )
 
 
@@ -269,7 +298,7 @@ def _make_button(text: str, color: str, slot: Callable[..., None]) -> QPushButto
 def _build_labeled_row(
     label: str,
     editor: QLineEdit,
-    extra_button: tuple[str, str, Callable[..., None]] | None = None,
+    extra_buttons: tuple[tuple[str, str, Callable[..., None]], ...] = (),
 ) -> QHBoxLayout:
     row = QHBoxLayout()
     row.setSpacing(8)
@@ -280,9 +309,8 @@ def _build_labeled_row(
     row.addWidget(lab)
     editor.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
     row.addWidget(editor, 1)
-    if extra_button is not None:
-        text, color, slot = extra_button
+    for text, color, slot in extra_buttons:
         button = _make_button(text, color, slot)
-        button.setMinimumWidth(100)
+        button.setMinimumWidth(90)
         row.addWidget(button)
     return row

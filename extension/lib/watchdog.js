@@ -36,7 +36,7 @@ export function decideWatchdogAction({ config, offscreenAlive, status = null }) 
   if (!config || !config.active || !config.roomId) {
     return { action: "idle", badge: badgeFromStatus(null) };
   }
-  if (!offscreenAlive) {
+  if (!offscreenAlive || (status && !status.active)) {
     return { action: "recreate", badge: { text: "RST", color: BADGE_COLORS.YELLOW } };
   }
   return { action: "none", badge: badgeFromStatus(status) };

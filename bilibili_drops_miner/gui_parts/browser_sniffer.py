@@ -10,11 +10,13 @@ from collections.abc import Callable, Iterable
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any, Literal
 
+from bilibili_drops_miner.client_parts.qr_login import LOGIN_COOKIE_NAMES
 from bilibili_drops_miner.gui_parts.browser_utils import (
     browser_label,
     browser_try_order,
     extract_room_id_from_live_url,
     find_browser,
+    find_browser_binary,
 )
 from bilibili_drops_miner.gui_parts.extension_builder import (
     write_chrome_extension,
@@ -27,17 +29,6 @@ CookiesCallback = Callable[[list[dict[str, Any]]], None]
 PageUrlCallback = Callable[[int], None]
 PageHtmlCallback = Callable[[str, str], bool]
 ErrorCallback = Callable[[str, str], None]
-
-LOGIN_COOKIE_NAMES = {
-    "SESSDATA",
-    "bili_jct",
-    "DedeUserID",
-    "DedeUserID__ckMd5",
-    "buvid3",
-    "b_nut",
-    "sid",
-}
-
 
 def classify_sniff_payload(data: dict[str, Any]) -> tuple[SniffPayloadKind, Any]:
     if data.get("type") == "__bili_cookies__":
@@ -70,6 +61,7 @@ def start_browser_sniff(
     url_keyword: str | None,
     hint: str,
     *,
+    start_url: str | None = None,
     on_error: ErrorCallback,
     on_network_match: NetworkCallback | None = None,
     on_cookies: CookiesCallback | None = None,
@@ -157,6 +149,9 @@ def start_browser_sniff(
                             need_page=need_page,
                         )
                         opts = webdriver.EdgeOptions()
+                        browser_binary = find_browser_binary("edge")
+                        if browser_binary:
+                            opts.binary_location = browser_binary
                         opts.add_argument(f"--load-extension={ext_dir}")
                         driver = webdriver.Edge(options=opts)
                         browser_type = "edge"
@@ -170,6 +165,9 @@ def start_browser_sniff(
                             need_page=need_page,
                         )
                         opts = webdriver.ChromeOptions()
+                        browser_binary = find_browser_binary("chrome")
+                        if browser_binary:
+                            opts.binary_location = browser_binary
                         opts.enable_bidi = True
                         opts.enable_webextensions = True
                         opts.add_argument("--remote-allow-origins=*")
@@ -193,7 +191,7 @@ def start_browser_sniff(
                     f"\n最后错误: {last_exc}"
                 )
 
-            driver.get("https://www.bilibili.com/")
+            driver.get(start_url or "https://www.bilibili.com/")
             logger.info("%s（浏览器: %s）", hint, browser_label(browser_type or ""))
 
             cookie_done = False

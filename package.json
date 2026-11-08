@@ -1,0 +1,10 @@
+{
+  "name": "bilibili-drops-miner-workspace",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.18" },
+  "scripts": {
+    "test": "npm --prefix extension test",
+    "verify-notes": "node .agents/scripts/verify-agent-note-tree.ts && node .agents/scripts/verify-agent-note-format.ts && node .agents/scripts/verify-archived-agent-notes.ts"
+  }
+}

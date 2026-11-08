@@ -1,12 +1,15 @@
-// TaskMonitor（M5 part 5）：周期轮询任务进度并自动领取已完成奖励。
-//
-// 与 Python x25kn_worker._task_monitor_loop 的差异：Python 仅记录进度 + 完成通知
-// （领奖是 GUI 手动按钮）；扩展端按用户要求新增「完成即领」自动化——
-// 当任务转为已完成且服务端未标记已领（status≠6）时，自动 getMissionRewardInfo +
-// receiveMissionReward，成功后记入 claimedIds 避免重复领取。
-//
-// 调度：自调度 setTimeout（成功→intervalMs，查询失败→reconnectDelayMs），
-// 与心跳引擎的 250ms 主循环解耦，慢查询/限频重试不阻塞心跳。
+// 任务查询与领奖串行；热更新用 generation 丢弃旧响应，不重启心跳引擎。
+import { normalizeTaskIds, resolveRewardTaskIds } from "./tasks.js";
+import { failedRewardClaimResult } from "./rewards.js";
+
+function concreteTasks(progresses) {
+  return progresses.flatMap((task) => {
+    const points = (task.checkPoints || []).filter((point) => String(point.sid || "").trim());
+    return points.length
+      ? points.map((point) => ({ ...point, taskId: String(point.sid).trim() }))
+      : [task];
+  });
+}
 
 /**
  * 选出本轮应尝试领取的任务：已完成 && 服务端未标记已领(status≠6) && 本地未领。
@@ -14,10 +17,14 @@
 export function selectClaimableTasks(progresses, alreadyClaimed) {
   const claimed = new Set(alreadyClaimed);
   const out = [];
-  for (const t of progresses) {
+  for (const t of concreteTasks(progresses)) {
+    if (!t.taskId) continue;
     if (claimed.has(t.taskId)) continue;
     if (t.status === 6) continue; // 服务端已领
-    if (t.isCompleted) out.push(t.taskId);
+    if (t.isCompleted) {
+      out.push(t.taskId);
+      claimed.add(t.taskId);
+    }
   }
   return out;
 }
@@ -45,21 +52,30 @@ export class TaskMonitor {
     log = () => {},
     onProgress = null,
     onClaim = null,
+    autoClaimRewards = true,
+    sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   }) {
     this.client = client;
-    this.taskIds = taskIds;
+    this.taskIds = [...new Set(normalizeTaskIds(taskIds))];
     this.csrf = csrf;
     this.intervalMs = intervalMs;
     this.reconnectDelayMs = reconnectDelayMs;
     this.log = log;
     this.onProgress = onProgress;
     this.onClaim = onClaim;
+    this.autoClaimRewards = autoClaimRewards;
+    this.sleep = sleep;
 
     this.stopped = true;
     this.snapshot = {}; // taskId → {curValue, limitValue, status}
     this.claimedIds = []; // 本地已成功领取 / 服务端已领 的 taskId
     this.lastError = null;
     this.timer = null;
+    this.progresses = [];
+    this.claimResults = [];
+    this.lastUpdatedAt = null;
+    this._generation = 0;
+    this._inflight = null;
   }
 
   start() {
@@ -69,11 +85,41 @@ export class TaskMonitor {
 
   stop() {
     this.stopped = true;
+    this._generation++;
     if (this.timer) clearTimeout(this.timer);
+  }
+
+  update({ taskIds = this.taskIds, intervalMs = this.intervalMs, autoClaimRewards = this.autoClaimRewards, csrf = this.csrf }) {
+    const ids = [...new Set(normalizeTaskIds(taskIds))];
+    const changedIds = ids.join(",") !== this.taskIds.join(",");
+    if (!changedIds && intervalMs === this.intervalMs && autoClaimRewards === this.autoClaimRewards && csrf === this.csrf) return;
+    this._generation++;
+    this.taskIds = ids;
+    this.intervalMs = intervalMs;
+    this.autoClaimRewards = autoClaimRewards;
+    this.csrf = csrf;
+    if (changedIds) {
+      this.progresses = [];
+      this.snapshot = {};
+      this.lastUpdatedAt = null;
+      this.lastError = null;
+    }
+    this._schedule(0);
+  }
+
+  async refresh({ claimAll = false } = {}) {
+    const generation = this._generation;
+    while (this._inflight) {
+      await this._inflight;
+      if (generation !== this._generation) return;
+    }
+    if (generation !== this._generation) return;
+    return this._runOnce(claimAll);
   }
 
   _schedule(delay) {
     if (this.stopped) return;
+    if (this.timer) clearTimeout(this.timer);
     this.timer = setTimeout(() => this._tick(), delay);
   }
 
@@ -84,24 +130,43 @@ export class TaskMonitor {
   }
 
   /** 一个监控周期：查询 → 比对 → 自动领取。返回下一次调度的延迟。 */
-  async _runOnce() {
+  _runOnce(claimAll = false) {
+    if (this._inflight) return this._inflight;
+    this._inflight = this._poll(claimAll).finally(() => { this._inflight = null; });
+    return this._inflight;
+  }
+
+  async _poll(claimAll) {
+    const generation = this._generation;
+    if (this.taskIds.length === 0) return this.intervalMs;
     let progresses;
     try {
       progresses = await this.client.getTaskProgress(this.taskIds, {
         csrf: this.csrf,
       });
     } catch (err) {
+      if (generation !== this._generation) return 0;
       this.lastError = err;
       this.log("warn", `任务监控查询失败: ${err.message}`);
       return this.reconnectDelayMs;
     }
+    if (generation !== this._generation) return 0;
     this.lastError = null;
     this._applyProgress(progresses);
-    await this._claimCompleted(progresses);
-    return this.intervalMs;
+    if (this.autoClaimRewards || claimAll) await this._claimCompleted(progresses, generation, claimAll);
+    return generation === this._generation ? this.intervalMs : 0;
   }
 
   _applyProgress(progresses) {
+    this.progresses = progresses;
+    this.lastUpdatedAt = Date.now();
+    // 每日/周期任务回到未完成状态时，允许下一轮完成后再次领取。
+    const claimed = new Set(this.claimedIds);
+    for (const task of concreteTasks(progresses)) {
+      if (task.status === 6) claimed.add(task.taskId);
+      else if (!task.isCompleted) claimed.delete(task.taskId);
+    }
+    this.claimedIds = [...claimed];
     const snap = buildProgressSnapshot(progresses);
     for (const t of progresses) {
       const cur = snap[t.taskId];
@@ -126,25 +191,39 @@ export class TaskMonitor {
     this.snapshot = snap;
   }
 
-  async _claimCompleted(progresses) {
-    const ids = selectClaimableTasks(progresses, this.claimedIds);
-    for (const id of ids) {
+  async _claimCompleted(progresses, generation, claimAll) {
+    const ids = claimAll
+      ? resolveRewardTaskIds(this.taskIds, progresses)
+      : selectClaimableTasks(progresses, this.claimedIds);
+    for (let index = 0; index < ids.length; index++) {
+      const id = ids[index];
+      if (generation !== this._generation) return;
       try {
+        if (index > 0) await this.sleep(1200);
+        if (generation !== this._generation) return;
         const info = await this.client.getMissionRewardInfo(id);
+        if (generation !== this._generation) return;
         const result = await this.client.receiveMissionReward(info, {
           csrf: this.csrf,
         });
-        this.onClaim?.(result);
-        if (result.success) {
-          this.claimedIds.push(id);
+        if (generation !== this._generation) return;
+        this._recordClaim(result);
+        if (result.success || info.isClaimed) {
+          if (!this.claimedIds.includes(id)) this.claimedIds.push(id);
           this.log("info", `已领取: ${info.taskName || id} (${result.message})`);
-        } else if (info.isClaimed) {
-          // 服务端显示已领 → 本地标记，避免反复尝试
-          this.claimedIds.push(id);
         }
       } catch (err) {
+        if (generation !== this._generation) return;
+        this._recordClaim(failedRewardClaimResult(id, err));
         this.log("warn", `领取 ${id} 失败: ${err.message}`);
       }
     }
+  }
+
+  _recordClaim(result) {
+    this.claimResults = this.claimResults.filter((item) => item.taskId !== result.taskId);
+    this.claimResults.push({ ...result, at: Date.now() });
+    this.claimResults = this.claimResults.slice(-100);
+    this.onClaim?.(result);
   }
 }

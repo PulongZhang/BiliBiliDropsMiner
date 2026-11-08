@@ -14,6 +14,20 @@ def is_rate_limited_payload(payload: dict[str, Any]) -> bool:
     return code in {"-702", "-509"} or "频率" in message or "频繁" in message
 
 
+def _should_retry_with_fresh_wbi(
+    payload: dict[str, Any],
+    *,
+    retry: int,
+    retry_on_wbi_miss: bool,
+) -> bool:
+    # 限频需要由调用方按退避策略处理，不能在刷新 WBI 时立即重复请求。
+    return (
+        retry == 0
+        and retry_on_wbi_miss
+        and not is_rate_limited_payload(payload)
+    )
+
+
 async def request_with_transient_retry(
     request_coro: Callable[[], Awaitable[httpx.Response]],
     *,
@@ -82,8 +96,14 @@ async def signed_get_json(
         payload = response.json()
         if payload.get("code") == 0:
             return payload
-        if retry == 0 and retry_on_wbi_miss:
+        if _should_retry_with_fresh_wbi(
+            payload,
+            retry=retry,
+            retry_on_wbi_miss=retry_on_wbi_miss,
+        ):
             clear_wbi_cache()
+            continue
+        break
     return payload
 
 
@@ -118,8 +138,14 @@ async def signed_post_json(
         payload = response.json()
         if payload.get("code") == 0:
             return payload
-        if retry == 0 and retry_on_wbi_miss:
+        if _should_retry_with_fresh_wbi(
+            payload,
+            retry=retry,
+            retry_on_wbi_miss=retry_on_wbi_miss,
+        ):
             clear_wbi_cache()
+            continue
+        break
     return payload
 
 
@@ -154,8 +180,14 @@ async def signed_post_query_json(
         payload = response.json()
         if payload.get("code") == 0:
             return payload
-        if retry == 0 and retry_on_wbi_miss:
+        if _should_retry_with_fresh_wbi(
+            payload,
+            retry=retry,
+            retry_on_wbi_miss=retry_on_wbi_miss,
+        ):
             clear_wbi_cache()
+            continue
+        break
     return payload
 
 
@@ -190,7 +222,13 @@ async def signed_post_form_json(
         payload = response.json()
         if payload.get("code") == 0:
             return payload
-        if retry == 0 and retry_on_wbi_miss:
+        if _should_retry_with_fresh_wbi(
+            payload,
+            retry=retry,
+            retry_on_wbi_miss=retry_on_wbi_miss,
+        ):
             clear_wbi_cache()
+            continue
+        break
     return payload
 

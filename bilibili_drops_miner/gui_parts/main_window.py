@@ -5,6 +5,7 @@ import queue
 import sys
 import threading
 import webbrowser
+from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QCloseEvent
@@ -17,18 +18,25 @@ from PySide6.QtWidgets import (
 
 from bilibili_drops_miner.config import MinerConfig
 from bilibili_drops_miner.gui_parts.app_style import configure_qt_app
+from bilibili_drops_miner.gui_parts.account_status import (
+    AccountStatus,
+    AccountStatusController,
+)
 from bilibili_drops_miner.gui_parts.browser_actions import BrowserActions
 from bilibili_drops_miner.gui_parts.config_io import (
+    GuiConfigValues,
     build_config_payload,
     load_config_data,
     save_config_data,
     values_from_config_data,
 )
+from bilibili_drops_miner.gui_parts.gui_state import GuiStateStore
 from bilibili_drops_miner.gui_parts.log_handler import QueueLogHandler
 from bilibili_drops_miner.gui_parts.main_layout import (
     MainWindowCallbacks,
     build_main_window_layout,
 )
+from bilibili_drops_miner.gui_parts.qr_login_dialog import QrLoginDialog
 from bilibili_drops_miner.gui_parts.task_controller import TaskController
 from bilibili_drops_miner.gui_parts.update_checker import (
     check_latest_release,
@@ -65,8 +73,9 @@ class MinerGUI(QMainWindow):
     # Qt auto-queues the call onto the GUI thread (sender lives in non-Qt thread).
     ui_call = Signal(object, tuple, dict)
 
-    def __init__(self) -> None:
+    def __init__(self, gui_state: GuiStateStore | None = None) -> None:
         super().__init__()
+        self._gui_state = gui_state if gui_state is not None else GuiStateStore()
         self.setWindowTitle(f"Bilibili 直播掉宝助手 {APP_VERSION}")
         self.resize(1040, 760)
         self.setMinimumSize(860, 620)
@@ -82,9 +91,22 @@ class MinerGUI(QMainWindow):
         self._live_watch_time_result: str = ""
         self._task_progress_pending: bool = False
         self._task_refresh_trigger_pending: bool = False
+        self._qr_login_dialog: QrLoginDialog | None = None
+        self._account_status = AccountStatus("empty", "")
+        self._running_account_uid: int | None = None
+        self._account_auto_stop_requested = False
         self.ui_call.connect(self._on_ui_call, Qt.QueuedConnection)
 
         self._build_layout()
+        self.account_status_controller = AccountStatusController(
+            self,
+            get_cookie=lambda: self.cookie_edit.text(),
+            on_status=self._on_account_status,
+        )
+        self.cookie_edit.textChanged.connect(
+            self.account_status_controller.cookie_changed
+        )
+        self.account_status_controller.cookie_changed()
         self.browser_actions = BrowserActions(
             parent=self,
             show_warning=self._show_warning,
@@ -104,8 +126,11 @@ class MinerGUI(QMainWindow):
             set_live_watch_time_text=self._set_live_watch_time_text,
             complete_task_refresh=self._complete_task_refresh,
             post_ui_task=self._post_ui_task,
+            get_auto_claim_enabled=lambda: self.auto_claim_rewards_check.isChecked(),
         )
         self._install_logging()
+        self._restore_window_geometry()
+        self._restore_last_config()
 
         self._log_timer = QTimer(self)
         self._log_timer.setInterval(120)
@@ -138,9 +163,11 @@ class MinerGUI(QMainWindow):
         widgets = build_main_window_layout(
             self,
             MainWindowCallbacks(
+                qr_login_cookie=self.qr_login_cookie,
                 auto_fetch_cookie=self.auto_fetch_cookie,
                 auto_fetch_room_id=self.auto_fetch_room_id,
-                auto_fetch_task_ids=self.auto_fetch_task_ids,
+                auto_fetch_task_ids_mode1=self.auto_fetch_task_ids_mode1,
+                auto_fetch_task_ids_mode2=self.auto_fetch_task_ids_mode2,
                 start=self.start,
                 stop=self.stop,
                 load_config=self.load_config,
@@ -166,7 +193,45 @@ class MinerGUI(QMainWindow):
         self.log_card = widgets.log_card
         self._log_toggle_btn = widgets.log_toggle_btn
         self.claim_rewards_btn = widgets.claim_rewards_btn
+        self.auto_claim_rewards_check = widgets.auto_claim_rewards_check
+        self.account_status_label = widgets.account_status_label
         self._log_expanded = False
+
+    # ---------- local GUI state ----------
+
+    def _restore_window_geometry(self) -> None:
+        geometry = self._gui_state.window_geometry()
+        if not geometry.isEmpty() and self.restoreGeometry(geometry):
+            return
+        self._center_on_primary_screen()
+
+    def _center_on_primary_screen(self) -> None:
+        screen = QApplication.primaryScreen()
+        if screen is None:
+            return
+        available = screen.availableGeometry()
+        x = available.left() + max(0, (available.width() - self.width()) // 2)
+        y = available.top() + max(0, (available.height() - self.height()) // 2)
+        self.move(x, y)
+
+    def _restore_last_config(self) -> None:
+        path = self._gui_state.last_config_path()
+        if path is None:
+            return
+        if not path.is_file():
+            logging.getLogger(__name__).warning(
+                "上次使用的配置文件不存在，已取消自动加载: %s",
+                path,
+            )
+            self._gui_state.clear_last_config_path()
+            self._gui_state.sync()
+            return
+        self._load_config_path(
+            path,
+            show_error=False,
+            remember=False,
+            automatic=True,
+        )
 
     # ---------- logging / cross-thread ----------
 
@@ -269,7 +334,6 @@ class MinerGUI(QMainWindow):
             room_ids=parse_room_ids(self.rooms_edit.text().strip()),
             thread_count=int(self.threads_edit.text().strip() or "1"),
             reconnect_delay_seconds=int(self.reconnect_edit.text().strip() or "8"),
-            enable_web_heartbeat=True,
             task_ids=parse_task_ids(self.task_ids_edit.text().strip()),
             task_query_interval_seconds=int(
                 self.task_interval_edit.text().strip() or "30"
@@ -292,10 +356,23 @@ class MinerGUI(QMainWindow):
         except Exception as exc:
             self._show_error("配置错误", str(exc))
             return
+        account = self._account_status
+        if account.cookie != config.cookie or account.kind != "valid" or account.uid is None:
+            messages = {
+                "empty": "请先填写 Cookie，并等待账号校验通过。",
+                "checking": "Cookie 正在校验，请稍候再启动。",
+                "invalid": "Cookie 已失效，请重新登录后再启动。",
+                "error": "Cookie 校验失败，请检查网络后重试。",
+            }
+            message = messages.get(account.kind, "当前 Cookie 尚未校验通过。")
+            self._show_warning("无法启动", message)
+            return
         if not self.worker_controller.start(config, logger=logger):
             self._show_info("运行中", "助手已在运行中。")
             return
         logger.info("掉宝助手已启动")
+        self._running_account_uid = account.uid
+        self._account_auto_stop_requested = False
         self.task_controller.reset_live_watch_time()
         self._set_live_watch_time_text("本次预估观看时长: 0秒")
         self._start_progress_animation()
@@ -320,6 +397,15 @@ class MinerGUI(QMainWindow):
         result = self.worker_controller.poll_shutdown(logger=logger)
         if result in {"no_thread", "stopped"}:
             self._stop_poll_timer.stop()
+            self._finalize_runtime_ui()
+
+    def _finalize_runtime_ui(self) -> None:
+        self._stop_progress_animation()
+        self._config_sync_timer.stop()
+        self._task_refresh_timer.stop()
+        self._live_watch_time_timer.stop()
+        self.task_controller.stop_live_watch_time()
+        self._running_account_uid = None
 
     # ---------- progress bar (Qt-native indeterminate) ----------
 
@@ -412,6 +498,74 @@ class MinerGUI(QMainWindow):
     def _apply_auto_cookie(self, cookie_str: str) -> None:
         self.cookie_edit.setText(cookie_str)
 
+    # ---------- account status ----------
+
+    def _on_account_status(self, status: AccountStatus) -> None:
+        if status.kind == "empty" and self.worker_controller.is_running:
+            # Clearing a Cookie during a run is an invalidating action. Keep
+            # the persistent red warning after the automatic stop completes.
+            status = AccountStatus("invalid", "")
+        previous = self._account_status
+        if (
+            status.kind == "error"
+            and previous.kind == "invalid"
+            and previous.cookie == status.cookie
+        ):
+            # A temporary network failure cannot revoke an earlier definitive
+            # logged-out result or its persistent red warning.
+            return
+        if (
+            status.kind == "error"
+            and previous.cookie == status.cookie
+            and previous.uid is not None
+        ):
+            status = AccountStatus(
+                "error", status.cookie, previous.uid, previous.uname
+            )
+        self._account_status = status
+
+        if status.kind == "valid":
+            identity = status.uname or f"UID {status.uid}"
+            text, color = f"账号：{identity}", "#62d995"
+        elif status.kind == "invalid":
+            text, color = "Cookie 已失效", "#ff5d68"
+        elif status.kind == "checking":
+            text, color = "账号：检测中…", "#f0b35b"
+        elif status.kind == "error":
+            if status.uid is not None:
+                identity = status.uname or f"UID {status.uid}"
+                text = f"账号：{identity}（检查失败）"
+            else:
+                text = "账号：检查失败（网络异常）"
+            color = "#f0b35b"
+        else:
+            text, color = "账号：未填写 Cookie", "#9aa0a6"
+        self.account_status_label.setText(text)
+        self.account_status_label.setStyleSheet(f"color:{color};")
+
+        if not self.worker_controller.is_running:
+            return
+        if status.kind in {"empty", "invalid"}:
+            self._auto_stop_for_account("Cookie 已失效，运行已自动停止。")
+            return
+        if status.kind != "valid" or status.uid is None:
+            return
+        if self._running_account_uid != status.uid:
+            self._auto_stop_for_account(
+                "检测到 Cookie 所属账号已变化，运行已自动停止，请重新启动。"
+            )
+            return
+        miner = self.worker_controller.miner
+        if miner is not None and status.cookie != miner.config.cookie:
+            miner.update_cookie(status.cookie)
+
+    def _auto_stop_for_account(self, message: str) -> None:
+        if self._account_auto_stop_requested:
+            return
+        self._account_auto_stop_requested = True
+        logging.getLogger(__name__).warning(message)
+        self.stop()
+
     def _apply_auto_task_ids(self, task_ids_str: str) -> None:
         self.task_ids_edit.setText(task_ids_str)
 
@@ -447,11 +601,56 @@ class MinerGUI(QMainWindow):
     def auto_fetch_room_id(self) -> None:
         self.browser_actions.auto_fetch_room_id()
 
+    def auto_fetch_task_ids_mode1(self) -> None:
+        try:
+            room_ids = parse_room_ids(self.rooms_edit.text().strip())
+        except ValueError as exc:
+            self._show_warning(
+                "提示",
+                f"{exc}。请修正后重试模式1，或使用自动获取模式2。",
+            )
+            return
+        if not room_ids:
+            self._show_warning(
+                "提示",
+                "自动获取模式1需要先填写有效的直播间号；也可使用自动获取模式2。",
+            )
+            return
+        self.browser_actions.auto_fetch_task_ids_mode1(room_ids[0])
+
+    def auto_fetch_task_ids_mode2(self) -> None:
+        try:
+            room_ids = parse_room_ids(self.rooms_edit.text().strip())
+        except ValueError:
+            room_ids = []
+        self.browser_actions.auto_fetch_task_ids_mode2(
+            room_id=room_ids[0] if room_ids else None
+        )
+
     def auto_fetch_task_ids(self) -> None:
-        self.browser_actions.auto_fetch_task_ids()
+        """Backward-compatible alias for browser automation mode 2."""
+        self.auto_fetch_task_ids_mode2()
 
     def auto_fetch_cookie(self) -> None:
         self.browser_actions.auto_fetch_cookie()
+
+    def qr_login_cookie(self) -> None:
+        dialog = self._qr_login_dialog
+        if dialog is not None and dialog.isVisible():
+            dialog.raise_()
+            dialog.activateWindow()
+            return
+
+        dialog = QrLoginDialog(self, self._apply_auto_cookie)
+        self._qr_login_dialog = dialog
+
+        def clear_dialog(_result: int, current: QrLoginDialog = dialog) -> None:
+            if self._qr_login_dialog is current:
+                self._qr_login_dialog = None
+
+        dialog.finished.connect(clear_dialog)
+        dialog.show()
+        dialog.start_session()
 
     def _schedule_task_refresh(self) -> None:
         if (
@@ -478,6 +677,13 @@ class MinerGUI(QMainWindow):
     def _sync_config_to_miner(self) -> None:
         worker = self.worker_controller
         miner = worker.miner
+        if worker.has_thread and not worker.is_running:
+            login_invalidated = bool(miner and miner.login_invalidated)
+            worker.poll_shutdown(logger=logging.getLogger(__name__))
+            self._finalize_runtime_ui()
+            if login_invalidated:
+                self.account_status_controller.mark_current_invalid()
+            return
         if miner is None:
             if worker.stop_signal_set or not worker.has_thread:
                 self._config_sync_timer.stop()
@@ -508,10 +714,6 @@ class MinerGUI(QMainWindow):
         if new_task_ids != config.task_ids:
             config.task_ids = new_task_ids
 
-        new_cookie = self.cookie_edit.text().strip()
-        if new_cookie and new_cookie != config.cookie:
-            miner.update_cookie(new_cookie)
-
         new_notify_urls = parse_task_ids(self.notify_urls_edit.text().strip())
         if new_notify_urls != config.notify_urls:
             miner.update_notifier(new_notify_urls)
@@ -522,6 +724,17 @@ class MinerGUI(QMainWindow):
     # ---------- close ----------
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        try:
+            self._gui_state.set_window_geometry(self.saveGeometry())
+            self._gui_state.sync()
+        except Exception:
+            logging.getLogger(__name__).exception("保存 GUI 状态失败")
+        dialog = self._qr_login_dialog
+        if dialog is not None:
+            dialog.cancel_session()
+            dialog.close()
+            self._qr_login_dialog = None
+        self.account_status_controller.close()
         self._ui_alive = False
         try:
             self.stop()
@@ -533,37 +746,73 @@ class MinerGUI(QMainWindow):
 
     # ---------- config load/save ----------
 
+    def _apply_config_values(self, values: GuiConfigValues) -> None:
+        self.cookie_edit.setText(values.cookie)
+        self.rooms_edit.setText(values.rooms_text)
+        self.threads_edit.setText(values.thread_count_text)
+        self.reconnect_edit.setText(values.reconnect_delay_text)
+        self.task_ids_edit.setText(values.task_ids_text)
+        self.task_interval_edit.setText(values.task_query_interval_text)
+        self.notify_urls_edit.setText(values.notify_urls_text)
+        self.disable_task_notify_check.setChecked(not values.notify_on_task_complete)
+        self.auto_claim_rewards_check.setChecked(values.auto_claim_rewards)
+        self.verbose_check.setChecked(values.verbose)
+
+    def _load_config_path(
+        self,
+        path: str | Path,
+        *,
+        show_error: bool,
+        remember: bool,
+        automatic: bool,
+    ) -> bool:
+        try:
+            values = values_from_config_data(load_config_data(path))
+            self._apply_config_values(values)
+            if remember:
+                self._gui_state.set_last_config_path(path)
+                self._gui_state.sync()
+            message = "已自动加载上次配置" if automatic else "配置已加载"
+            logging.getLogger(__name__).info("%s: %s", message, path)
+            return True
+        except Exception as exc:
+            if show_error:
+                self._show_error("加载失败", str(exc))
+            else:
+                logging.getLogger(__name__).warning(
+                    "自动加载上次配置失败: %s (%s)",
+                    path,
+                    exc,
+                )
+            return False
+
+    def _config_dialog_path(self, *, save: bool) -> str:
+        path = self._gui_state.last_config_path()
+        if path is not None and path.is_file():
+            return str(path)
+        return "config.json" if save else ""
+
     def load_config(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
             self,
             "加载配置文件",
-            "",
+            self._config_dialog_path(save=False),
             "JSON 文件 (*.json);;所有文件 (*.*)",
         )
         if not path:
             return
-        try:
-            values = values_from_config_data(load_config_data(path))
-            self.cookie_edit.setText(values.cookie)
-            self.rooms_edit.setText(values.rooms_text)
-            self.threads_edit.setText(values.thread_count_text)
-            self.reconnect_edit.setText(values.reconnect_delay_text)
-            self.task_ids_edit.setText(values.task_ids_text)
-            self.task_interval_edit.setText(values.task_query_interval_text)
-            self.notify_urls_edit.setText(values.notify_urls_text)
-            self.disable_task_notify_check.setChecked(
-                not values.notify_on_task_complete
-            )
-            self.verbose_check.setChecked(values.verbose)
-            logging.getLogger(__name__).info("配置已加载: %s", path)
-        except Exception as exc:
-            self._show_error("加载失败", str(exc))
+        self._load_config_path(
+            path,
+            show_error=True,
+            remember=True,
+            automatic=False,
+        )
 
     def save_config(self) -> None:
         path, _ = QFileDialog.getSaveFileName(
             self,
             "保存配置文件",
-            "config.json",
+            self._config_dialog_path(save=True),
             "JSON 文件 (*.json);;所有文件 (*.*)",
         )
         if not path:
@@ -572,8 +821,14 @@ class MinerGUI(QMainWindow):
             config = self._build_config()
             save_config_data(
                 path,
-                build_config_payload(config, verbose=self.verbose_check.isChecked()),
+                build_config_payload(
+                    config,
+                    verbose=self.verbose_check.isChecked(),
+                    auto_claim_rewards=self.auto_claim_rewards_check.isChecked(),
+                ),
             )
+            self._gui_state.set_last_config_path(path)
+            self._gui_state.sync()
             logging.getLogger(__name__).info("配置已保存: %s", path)
         except Exception as exc:
             self._show_error("保存失败", str(exc))

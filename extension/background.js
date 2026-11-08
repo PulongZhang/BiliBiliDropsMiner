@@ -9,6 +9,9 @@
 // 消息约定：popup/外部发 "START"/"STOP"/"STATUS"；本 SW 收到后转发 "OFS_*" 给 offscreen。
 
 import { decideWatchdogAction } from "./lib/watchdog.js";
+import { checkAccount, accountStopReason } from "./lib/account.js";
+import { extractTaskIdsFromHtml } from "./lib/initial-state.js";
+import { normalizeTaskIds } from "./lib/tasks.js";
 
 const TAG = "[BDM-BG]";
 const OFFSCREEN_URL = "offscreen/offscreen.html";
@@ -16,6 +19,22 @@ const BILIBILI_ROOT = "https://www.bilibili.com";
 const CONFIG_KEY = "mining";
 const ALARM_NAME = "bdm-watchdog";
 const WATCHDOG_PERIOD_MIN = 1;
+let account = { kind: "checking" };
+let miningOperation = Promise.resolve();
+
+function serializeMining(fn) {
+  const pending = miningOperation.then(fn);
+  miningOperation = pending.catch(() => {});
+  return pending;
+}
+
+function taskSettings(cfg) {
+  return {
+    taskIds: [...new Set(normalizeTaskIds(cfg.taskIds || []))],
+    taskQueryIntervalSeconds: Math.max(10, Number(cfg.taskQueryIntervalSeconds) || 30),
+    autoClaimRewards: cfg.autoClaimRewards !== false,
+  };
+}
 
 // --- offscreen 生命周期（并发安全：promise 锁 + 容忍「已存在」）---
 
@@ -95,6 +114,7 @@ async function buildStartPayload(cfg) {
     threadCount: n,
     taskIds: cfg.taskIds || [],
     taskQueryIntervalSeconds: cfg.taskQueryIntervalSeconds,
+    autoClaimRewards: cfg.autoClaimRewards !== false,
     csrf,
     identities,
   };
@@ -106,33 +126,39 @@ function updateBadge(badge) {
 }
 
 async function queryStatus() {
-  if (!(await hasOffscreen())) return { ok: true, status: { active: false } };
+  const config = await getConfig();
+  let status = { active: false };
   try {
-    return await chrome.runtime.sendMessage({ type: "OFS_STATUS" });
+    if (await hasOffscreen()) {
+      const resp = await chrome.runtime.sendMessage({ type: "OFS_STATUS" });
+      if (!resp?.ok) throw new Error(resp?.error || "引擎状态读取失败");
+      status = resp.status;
+    }
+    return { ok: true, status: { ...status, account, stopReason: config?.stopReason || "" } };
   } catch (err) {
     return { ok: false, status: { active: false }, error: String(err.message || err) };
   }
 }
 
-async function startMining({ roomId, threadCount = 1, taskIds, taskQueryIntervalSeconds }) {
-  if (!roomId) throw new Error("缺少 roomId");
-  const n = Math.max(1, Math.floor(threadCount));
-  await setConfig({
-    roomId,
-    threadCount: n,
-    taskIds: taskIds || [],
-    taskQueryIntervalSeconds,
-    active: true,
-  });
-  const payload = await buildStartPayload({
-    roomId,
-    threadCount: n,
-    taskIds: taskIds || [],
-    taskQueryIntervalSeconds,
-  });
+async function startMining(msg) {
+  const roomId = Number(msg.roomId);
+  const n = Number(msg.threadCount ?? 1);
+  if (!Number.isSafeInteger(roomId) || roomId <= 0) throw new Error("请填写有效房间 ID");
+  if (!Number.isSafeInteger(n) || n < 1) throw new Error("会话数必须为正整数");
+  account = await checkAccount();
+  if (account.kind !== "valid") {
+    if (account.kind === "invalid") await stopMining(accountStopReason(account));
+    throw new Error(account.kind === "invalid" ? "请先在 bilibili.com 登录" : account.message);
+  }
+  const cfg = { roomId, threadCount: n, ...taskSettings(msg), uid: account.uid, active: false, stopReason: "" };
+  const payload = await buildStartPayload(cfg);
+  await stopMining();
+  await setConfig(cfg);
   await ensureOffscreen();
   console.log(TAG, "→ OFS_START", { roomId, threadCount: n });
   const resp = await chrome.runtime.sendMessage(payload);
+  if (!resp?.ok) throw new Error(resp?.error || "引擎启动失败");
+  await setConfig({ ...cfg, active: true });
   const st = resp?.ok ? resp.status : null;
   if (st) {
     updateBadge(
@@ -146,14 +172,51 @@ async function startMining({ roomId, threadCount = 1, taskIds, taskQueryInterval
   return resp;
 }
 
-async function stopMining() {
+async function stopMining(stopReason = "") {
   const prev = await getConfig();
-  if (prev) await setConfig({ ...prev, active: false });
+  if (prev) await setConfig({ ...prev, active: false, stopReason });
   if (await hasOffscreen()) {
     console.log(TAG, "→ OFS_STOP");
     await chrome.runtime.sendMessage({ type: "OFS_STOP" });
   }
   updateBadge({ text: "", color: "#888888" });
+}
+
+async function refreshAccount(config = null) {
+  account = await checkAccount();
+  const cfg = config || await getConfig();
+  if (cfg?.active) {
+    const reason = accountStopReason(account, cfg.uid);
+    if (reason) await stopMining(reason);
+    else if (account.kind === "valid" && await hasOffscreen()) {
+      await chrome.runtime.sendMessage({ type: "OFS_UPDATE_AUTH", csrf: await getCsrf() });
+    }
+  }
+  return account;
+}
+
+async function updateTasks(msg) {
+  const cfg = await getConfig();
+  if (cfg?.active && Number(msg.roomId) !== cfg.roomId) {
+    throw new Error("运行中更新任务时，房间 ID 必须与当前挂机房间一致");
+  }
+  const settings = taskSettings(msg);
+  if (cfg?.active && await hasOffscreen()) {
+    const resp = await chrome.runtime.sendMessage({ type: "OFS_UPDATE_TASKS", ...settings });
+    if (!resp?.ok) throw new Error(resp?.error || "更新任务失败");
+  }
+  if (cfg) await setConfig({ ...cfg, ...settings });
+  return queryStatus();
+}
+
+async function discoverTasks(roomId) {
+  if (!Number.isSafeInteger(roomId) || roomId <= 0) throw new Error("请先填写房间 ID");
+  const response = await fetch(`https://live.bilibili.com/${roomId}`, {
+    credentials: "include",
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!response.ok) throw new Error(`获取活动页失败（HTTP ${response.status}）`);
+  return { ok: true, taskIds: extractTaskIdsFromHtml(await response.text()) };
 }
 
 /**
@@ -162,6 +225,10 @@ async function stopMining() {
  */
 async function runWatchdog() {
   const config = await getConfig();
+  if (config?.active) {
+    await refreshAccount(config);
+    if (accountStopReason(account, config.uid)) return;
+  }
   const offscreenAlive = await hasOffscreen();
   let status = null;
   if (offscreenAlive) {
@@ -171,9 +238,13 @@ async function runWatchdog() {
   const decision = decideWatchdogAction({ config, offscreenAlive, status });
   console.log(TAG, "watchdog:", decision.action);
   if (decision.action === "recreate" && config) {
+    // 网络故障时保持运行意图，待下一次确认账号后恢复。
+    if (account.kind !== "valid") return;
     try {
       await ensureOffscreen();
-      await chrome.runtime.sendMessage(await buildStartPayload(config));
+      const resp = await chrome.runtime.sendMessage(await buildStartPayload(config));
+      if (!resp?.ok) throw new Error(resp?.error || "恢复引擎失败");
+      if (!config.uid) await setConfig({ ...config, uid: account.uid });
     } catch (err) {
       console.warn(TAG, "recreate 失败:", err);
     }
@@ -188,22 +259,28 @@ async function ensureAlarm() {
   }
 }
 
-async function resumeIfNeeded() {
-  const cfg = await getConfig();
-  if (!cfg || !cfg.active || !cfg.roomId) return;
-  console.log(TAG, "resume on startup:", cfg);
-  await ensureOffscreen();
-  await chrome.runtime.sendMessage(await buildStartPayload(cfg));
-}
-
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  const types = ["START", "STOP", "STATUS", "ACCOUNT", "SAVE_CONFIG", "UPDATE_TASKS", "DISCOVER_TASKS", "REFRESH_TASKS", "CLAIM_REWARDS"];
+  if (!types.includes(msg?.type)) return false;
   (async () => {
     try {
-      if (msg.type === "START") sendResponse(await startMining(msg));
+      if (msg.type === "START") sendResponse(await serializeMining(() => startMining(msg)));
       else if (msg.type === "STOP") {
-        await stopMining();
+        await serializeMining(() => stopMining());
         sendResponse({ ok: true });
       } else if (msg.type === "STATUS") sendResponse(await queryStatus());
+      else if (msg.type === "ACCOUNT") sendResponse({ ok: true, account: await serializeMining(() => refreshAccount()) });
+      else if (msg.type === "SAVE_CONFIG") {
+        await chrome.storage.local.set({ preferences: msg.config });
+        sendResponse({ ok: true });
+      } else if (msg.type === "UPDATE_TASKS") sendResponse(await serializeMining(() => updateTasks(msg)));
+      else if (msg.type === "DISCOVER_TASKS") sendResponse(await discoverTasks(Number(msg.roomId)));
+      else if (msg.type === "REFRESH_TASKS" || msg.type === "CLAIM_REWARDS") {
+        if (!(await getConfig())?.active || !(await hasOffscreen())) throw new Error("请先启动挂机");
+        sendResponse(await chrome.runtime.sendMessage({
+          type: msg.type === "CLAIM_REWARDS" ? "OFS_CLAIM_REWARDS" : "OFS_REFRESH_TASKS",
+        }));
+      }
       // OFS_* 由 offscreen 处理，这里不响应
     } catch (err) {
       console.warn(TAG, err);
@@ -214,31 +291,30 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === ALARM_NAME) runWatchdog().catch((e) => console.warn(TAG, e));
+  if (alarm.name === ALARM_NAME) serializeMining(runWatchdog).catch((e) => console.warn(TAG, e));
 });
 
 chrome.runtime.onStartup.addListener(async () => {
   await ensureAlarm();
-  await resumeIfNeeded();
-  await runWatchdog();
+  await serializeMining(runWatchdog);
 });
 
 chrome.runtime.onInstalled.addListener(async () => {
   await ensureAlarm();
-  await resumeIfNeeded();
+  await serializeMining(runWatchdog);
 });
 
 // SW 唤醒后立即跑一次看门狗，让角标/offscreen 尽快自愈
-runWatchdog().catch((e) => console.warn(TAG, "init watchdog:", e));
+serializeMining(runWatchdog).catch((e) => console.warn(TAG, "init watchdog:", e));
 
 // --- 调试钩子（popup 为正式 UI；此钩子便于在 SW 控制台做真实服务器验证）---
 //   await bdm.start({ roomId: 22743115, threadCount: 100, taskIds: ["xxx"] })
 //   await bdm.stop() / bdm.status() / bdm.watchdog()
 globalThis.bdm = {
-  start: startMining,
-  stop: stopMining,
+  start: (cfg) => serializeMining(() => startMining(cfg)),
+  stop: () => serializeMining(() => stopMining()),
   status: queryStatus,
-  watchdog: runWatchdog,
+  watchdog: () => serializeMining(runWatchdog),
 };
 
 console.log(TAG, "background loaded");

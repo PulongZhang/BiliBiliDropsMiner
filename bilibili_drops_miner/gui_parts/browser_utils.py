@@ -6,16 +6,26 @@ import shutil
 import sys
 
 
-def find_browser(name: str) -> bool:
+def find_browser_binary(name: str) -> str | None:
+    """Return the browser executable used by Selenium on this platform."""
     if sys.platform == "darwin":
         if name == "edge":
             paths = [
                 "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+                os.path.expanduser(
+                    "~/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"
+                ),
             ]
         else:
             paths = [
                 "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+                os.path.expanduser(
+                    "~/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+                ),
                 "/Applications/Chromium.app/Contents/MacOS/Chromium",
+                os.path.expanduser(
+                    "~/Applications/Chromium.app/Contents/MacOS/Chromium"
+                ),
             ]
     elif sys.platform == "win32":
         if name == "edge":
@@ -51,11 +61,17 @@ def find_browser(name: str) -> bool:
         for candidate in candidates:
             if candidate.startswith("/"):
                 if os.path.exists(candidate):
-                    return True
-            elif shutil.which(candidate):
-                return True
-        return False
-    return any(os.path.exists(path) for path in paths)
+                    return candidate
+            else:
+                resolved = shutil.which(candidate)
+                if resolved:
+                    return resolved
+        return None
+    return next((path for path in paths if os.path.exists(path)), None)
+
+
+def find_browser(name: str) -> bool:
+    return find_browser_binary(name) is not None
 
 
 def detect_default_browser() -> str | None:

@@ -17,6 +17,16 @@ export function normalizeTaskIds(taskIds) {
     .filter((x) => x.length > 0);
 }
 
+/** 聚合任务按 checkpoint SID 领奖；无进度时保留原 ID，按出现顺序去重。 */
+export function resolveRewardTaskIds(taskIds, progresses) {
+  const byId = new Map(progresses.map((task) => [task.taskId, task]));
+  const ids = normalizeTaskIds(taskIds).flatMap((id) => {
+    const checkpoints = normalizeTaskIds((byId.get(id)?.checkPoints || []).map((point) => point.sid || ""));
+    return checkpoints.length ? checkpoints : [id];
+  });
+  return [...new Set(ids)];
+}
+
 /**
  * 对应 TaskProgress.is_completed / TaskCheckpointProgress.is_completed：
  * limit>0 时看 cur>=limit，否则仅信任明确终态 status∈{3,6}。

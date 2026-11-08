@@ -3,14 +3,17 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
+import time
 from dataclasses import dataclass
+from typing import Callable
 
-from bilibili_drops_miner.client import BilibiliClient
+from bilibili_drops_miner.client import BilibiliClient, TaskProgress
 from bilibili_drops_miner.config import MinerConfig
 from bilibili_drops_miner.notifier import MultiPlatformNotifier
 from bilibili_drops_miner.x25kn_worker import X25KnWorker
 
 LOGGER = logging.getLogger(__name__)
+LOGIN_WATCHDOG_INTERVAL_SECONDS = 60.0
 
 
 @dataclass(slots=True)
@@ -22,6 +25,7 @@ class SessionPlan:
 class BilibiliWatchTimeMiner:
     def __init__(self, config: MinerConfig) -> None:
         self.config = config
+        self.on_task_progress: Callable[[list[TaskProgress], list[str]], None] | None = None
         self._stop_event = threading.Event()
         self._threads: list[threading.Thread] = []
         self._uid: int | None = None
@@ -29,7 +33,23 @@ class BilibiliWatchTimeMiner:
         self._notifier = MultiPlatformNotifier(config.notify_urls)
         self._clients: list[BilibiliClient] = []
         self._clients_lock = threading.Lock()
+        self._session_tasks: set[asyncio.Task[None]] = set()
         self._force_stop_requested = False
+        self._login_invalidated = threading.Event()
+
+    @property
+    def uid(self) -> int | None:
+        return self._uid
+
+    @property
+    def login_invalidated(self) -> bool:
+        return self._login_invalidated.is_set()
+
+    @property
+    def active_session_count(self) -> int:
+        """Count running session workers, excluding threads waiting for their stagger."""
+        with self._clients_lock:
+            return sum(not task.done() for task in self._session_tasks)
 
     def _build_session_plans(self) -> list[SessionPlan]:
         plans: list[SessionPlan] = []
@@ -56,6 +76,10 @@ class BilibiliWatchTimeMiner:
 
         client = BilibiliClient(self.config.cookie)
         with self._clients_lock:
+            # The Cookie may have changed while this client was being built.
+            # Registration and updates share this lock, so calibrate against
+            # the latest committed Cookie before publishing the client.
+            client.update_cookie(self.config.cookie)
             self._clients.append(client)
 
         worker: X25KnWorker | None = None
@@ -74,11 +98,14 @@ class BilibiliWatchTimeMiner:
                 room_id=plan.room_id,
                 session_id=f"s{plan.session_no}",
                 primary_session=plan.session_no == 1,
+                on_task_progress=self.on_task_progress,
             )
             task = asyncio.create_task(
                 worker.run_forever(),
                 name=f"x25kn-{plan.room_id}-s{plan.session_no}",
             )
+            with self._clients_lock:
+                self._session_tasks.add(task)
             LOGGER.info("直播间 %s 连接 #%s 已启动", plan.room_id, plan.session_no)
 
             while not self._stop_event.is_set():
@@ -100,6 +127,12 @@ class BilibiliWatchTimeMiner:
                 task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
 
+            with self._clients_lock:
+                if task is not None:
+                    self._session_tasks.discard(task)
+                if client in self._clients:
+                    self._clients.remove(client)
+
             try:
                 await client.close()
             except Exception:
@@ -109,10 +142,6 @@ class BilibiliWatchTimeMiner:
                     plan.session_no,
                     exc_info=True,
                 )
-
-            with self._clients_lock:
-                if client in self._clients:
-                    self._clients.remove(client)
 
     def _thread_entry(self, plan: SessionPlan, thread_index: int) -> None:
         try:
@@ -124,14 +153,15 @@ class BilibiliWatchTimeMiner:
     def run(self) -> None:
         self._stop_event.clear()
         self._force_stop_requested = False
+        self._login_invalidated.clear()
 
         uid, uname = asyncio.run(self._probe_login())
         self._uid = uid
         self._uname = uname
-        if uid:
-            LOGGER.info("登录成功: %s (UID: %s)", uname, uid)
-        else:
-            LOGGER.warning("Cookie 未登录，将以游客模式运行")
+        if uid is None:
+            self._login_invalidated.set()
+            raise RuntimeError("Cookie 已失效，无法启动")
+        LOGGER.info("登录成功: %s (UID: %s)", uname, uid)
 
         plans = self._build_session_plans()
         LOGGER.info(
@@ -163,10 +193,30 @@ class BilibiliWatchTimeMiner:
             thread.start()
             self._threads.append(thread)
 
+        next_login_check = time.monotonic() + LOGIN_WATCHDOG_INTERVAL_SECONDS
         try:
             while not self._stop_event.is_set():
                 if not any(thread.is_alive() for thread in self._threads):
                     break
+                if time.monotonic() >= next_login_check:
+                    try:
+                        checked_uid, _ = asyncio.run(self._probe_login())
+                    except Exception as exc:
+                        LOGGER.warning("登录状态复检失败，将稍后重试: %s", exc)
+                    else:
+                        if checked_uid is None:
+                            LOGGER.error("Cookie 已失效，正在自动停止")
+                            self._login_invalidated.set()
+                            self.stop()
+                            break
+                        if checked_uid != self._uid:
+                            LOGGER.error("Cookie 所属账号已变化，正在自动停止")
+                            self._login_invalidated.set()
+                            self.stop()
+                            break
+                    next_login_check = (
+                        time.monotonic() + LOGIN_WATCHDOG_INTERVAL_SECONDS
+                    )
                 for thread in self._threads:
                     thread.join(timeout=0.5)
         except KeyboardInterrupt:
@@ -175,17 +225,32 @@ class BilibiliWatchTimeMiner:
         finally:
             self.stop(force=self._force_stop_requested)
             join_timeout = 1.2 if self._force_stop_requested else 3.0
-            for thread in self._threads:
-                thread.join(timeout=join_timeout)
+            next_warning_at = time.monotonic() + join_timeout
+            while True:
+                alive_threads = [
+                    thread for thread in self._threads if thread.is_alive()
+                ]
+                if not alive_threads:
+                    break
 
-            alive_threads = [thread.name for thread in self._threads if thread.is_alive()]
-            if alive_threads:
-                preview = ", ".join(alive_threads[:5])
-                if len(alive_threads) > 5:
-                    preview += f" ... 共 {len(alive_threads)} 个"
-                LOGGER.warning("停止未完成，仍有线程未退出: %s", preview)
-            else:
-                LOGGER.info("所有连接已停止")
+                # Keep the miner's owner thread alive until every session has
+                # released its client and event loop. The GUI polls this owner
+                # thread, so these short joins never block the GUI thread.
+                for thread in alive_threads:
+                    thread.join(timeout=0.2)
+
+                if time.monotonic() >= next_warning_at:
+                    alive_names = [
+                        thread.name for thread in alive_threads if thread.is_alive()
+                    ]
+                    if alive_names:
+                        preview = ", ".join(alive_names[:5])
+                        if len(alive_names) > 5:
+                            preview += f" ... 共 {len(alive_names)} 个"
+                        LOGGER.warning("停止未完成，仍有线程未退出: %s", preview)
+                    next_warning_at = time.monotonic() + join_timeout
+
+            LOGGER.info("所有连接已停止")
 
             self._threads.clear()
             with self._clients_lock:
@@ -198,11 +263,10 @@ class BilibiliWatchTimeMiner:
         self._stop_event.set()
 
     def update_cookie(self, new_cookie: str) -> None:
-        self.config.cookie = new_cookie
         with self._clients_lock:
-            clients = list(self._clients)
-        for client in clients:
-            client.update_cookie(new_cookie)
+            self.config.cookie = new_cookie
+            for client in self._clients:
+                client.update_cookie(new_cookie)
 
     def update_notifier(self, notify_urls: list[str]) -> None:
         self.config.notify_urls = notify_urls

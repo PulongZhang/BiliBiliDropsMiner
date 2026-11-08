@@ -15,7 +15,7 @@ B 站直播掉宝/观看时长挂机的 **Chrome/Edge 浏览器扩展（MV3）**
 2. 打开 `chrome://extensions`（Edge 用 `edge://extensions`）→ 开启 **开发者模式**
 3. **「加载已解压的扩展程序」** → 选择仓库下的 `extension/` 目录
 4. 登录 [bilibili.com](https://www.bilibili.com)
-5. 点扩展图标 → 打开目标直播间 → **「识别」** 自动填入房间号和任务 ID → 填会话数（默认 100）→ **启动**
+5. 点扩展图标 → 打开目标直播间后点 **「识别当前页」**，或填写房间号后点 **「按房间获取任务」** → 填会话数（默认 100）→ **启动**
 
 心跳引擎在 offscreen document 中常驻运行（关掉标签页也不影响），看门狗自动续跑。
 完整验证流程见 [runbook](docs/superpowers/specs/2026-07-05-extension-port-verification.md)，
@@ -26,25 +26,28 @@ B 站直播掉宝/观看时长挂机的 **Chrome/Edge 浏览器扩展（MV3）**
 - **免 Python**：Chrome / Edge 加载即用，无任何运行时依赖
 - **单房间 100 会话并发**：1s 错峰维持 x25Kn 心跳（对齐 Python 原版 bench 验证的下限）
 - **未开播也挂**：与原版一致，不依赖直播间正在直播
-- **任务监控 + 自动领奖**：周期轮询 totalv2 进度，任务完成且可领时自动领取、不重领（原版需手动点按钮）
-- **一键识别**：从当前直播间 `__initialState` 自动取房间号 + 任务 ID
+- **任务监控 + 自动/手动领奖**：显示任务及子任务进度，按子任务 ID 领取聚合任务奖励；支持关闭自动领取、手动刷新及查看领奖结果
+- **双方式识别**：读取当前直播间或按房间号解析静态页面，兼容 `__initialState`、EVA 组件树和新版扁平任务列表
+- **运行中更新任务**：识别后直接应用，手动编辑后点「应用任务设置」，心跳会话持续运行
+- **账号保护**：显示浏览器登录账号，启动前检查、运行中每分钟复查，登录失效或切换账号时自动停止
+- **配置保存**：编辑后自动保存，重新打开面板恢复；修改草稿不会覆盖当前挂机房间
 - **续跑 + 看门狗**：浏览器重启自动恢复；offscreen 异常死亡 1 分钟内自愈
 - **角标状态**：图标角标实时显示运行/总数比例与颜色
 
 ## ⚠️ 免责声明
 
 > [!IMPORTANT]
-> 仅供个人学习研究，不保证稳定性，不提供技术支持。使用后果自负；禁止商业用途，请遵守版权及平台规定。
+> 主要面向个人学习研究，不保证稳定性，不提供技术支持，使用后果自负。授权范围以 MIT License 为准，使用、修改与分发须遵守第三方权利及平台规定。
 > 挂机可能违反 B 站用户协议，账号风控风险自负。
 
 ---
 
-# Python GUI/CLI 原版
+# Python GUI/CLI 与 Docker WebUI 原版
 
 > 以下为上游 [mi0e](https://github.com/mi0e) 的 Python 版说明，保留自原仓库。
 
 轻量、直接的 B 站直播掉宝/观看时长任务挂机工具。  
-支持 GUI 与 CLI 双模式，支持多房间、多会话并行与任务进度追踪。
+支持 GUI、CLI 与 Docker WebUI，支持多房间、多会话并行与任务进度追踪。
 
 - [Release 下载](https://github.com/mi0e/BiliBiliDropsMiner/releases/latest)
 - [国内下载（密码 1234）](https://wwaqd.lanzoum.com/b019vsjd5i)
@@ -54,7 +57,7 @@ B 站直播掉宝/观看时长挂机的 **Chrome/Edge 浏览器扩展（MV3）**
 <details>
 <summary>点击展开 GUI 截图</summary>
 
-![GUI 截图](img/image_5.png)
+![Bilibili 直播掉宝助手 GUI](img/gui-preview.png)
 
 </details>
 
@@ -63,38 +66,46 @@ B 站直播掉宝/观看时长挂机的 **Chrome/Edge 浏览器扩展（MV3）**
 - 多房间并发挂机，支持每房间多会话连接
 - 任务进度自动轮询 + 手动刷新
 - 支持 Gotify、Server 酱通知
-- GUI 支持配置保存/加载、日志查看、自动获取 Cookie 与任务 ID
+- GUI 支持配置保存/加载、日志查看、自动参数获取等
 
 ## ⚠️ 免责声明
 
 > [!IMPORTANT]
 > **Disclaimer / 免责声明**
-> - 本项目仅供个人学习研究，不保证稳定性，不提供技术支持
+> - 本项目主要面向个人学习研究；软件授权范围以 MIT License 为准
+> - 不保证稳定性，不提供技术支持
 > - 使用本项目产生的一切后果由用户自行承担
-> - 禁止商业用途，请遵守版权及平台规定
-> - This project is for **personal learning and research purposes only**
+> - 使用、修改与分发须遵守 MIT License、第三方权利及平台规定
+> - This project is primarily intended for personal learning and research; the MIT License defines the software grant
 > - No stability guarantee or technical support provided
 > - Users are solely responsible for any consequences of using this project
-> - Commercial use is strictly prohibited
+> - Use, modification, and distribution are permitted under the MIT License; third-party rights and platform ToS still apply
 > - Please respect copyright and platform ToS
 
 ## 🔍 参数获取指南
 
 ### Cookie（必填）
 
-方式 1（推荐）：GUI 中点击“自动获取”，在弹出的浏览器中登录 B 站。  
-方式 2（手动）：登录 B 站后 F12 打开开发者工具复制 Cookie，必需包含 `SESSDATA` 和 `bili_jct`，具体方法自行查询。
+扫码登陆：GUI 中点击“扫码登录”，使用哔哩哔哩客户端扫码并确认，Cookie 会自动回填；二维码仅在本地生成。
+
+自动化嗅探：GUI 中点击“自动获取”，在弹出的 Chrome / Edge 浏览器中登录 B 站。
+
+手动获取：登录 B 站后 F12 打开开发者工具复制 Cookie，必需包含 `SESSDATA`、`DedeUserID` 和 `bili_jct`，具体获取方法自行查询。
 
 ### 房间号（必填）
 
-方式 1（推荐）：点击自动获取任务 ID 后进入直播间，房间号会自动回填。  
-方式 2（手动）：直播间 URL 中的数字部分即为房间号，例如 `https://live.bilibili.com/23612045` 中房间号为 `23612045`。
+自动化嗅探：点击“自动获取”并进入直播间，房间号会自动回填。
+
+手动获取：直播间 URL 中的数字部分即为房间号，例如 `https://live.bilibili.com/23612045` 中房间号为 `23612045`。
 
 
 ### 任务 ID（可选）
 
-方式 1（推荐）：GUI 中点击“自动获取”，进入活动直播间后自动回填。  
-方式 2（手动）：在任务接口请求中提取 task_ids 参数。
+自动网页解析：先填写活动直播间号，再点击“自动获取模式1”，工具会尝试从静态页解析任务 ID，无需启动浏览器；如果解析失败，请尝试模式 2。
+
+自动化嗅探：点击“自动获取模式2”。程序会启动 Chrome / Edge，通过直播页静态内容或任务接口网络请求解析任务 ID。
+
+手动获取：在任务接口请求中提取 task_ids 参数。
 
 典型请求示例：
 
@@ -131,19 +142,19 @@ https://api.bilibili.com/x/task/totalv2?csrf=xxx&task_ids=taskId1,taskId2
 
 ---
 
-### Q：为什么点击“自动获取”后没有拉起浏览器？
+### Q：为什么点击“自动获取模式2”后没有拉起浏览器？
 
-“自动获取”功能仅支持拉起典型安装路径下的 Chrome / Edge 浏览器。
+仅“自动获取模式2”需要浏览器，并且只支持拉起典型安装路径下的 Chrome / Edge 浏览器；模式 1 是纯 HTTP 静态解析，不会拉起浏览器。
 
 如果浏览器安装在自定义路径，可能无法被自动识别或启动。
 
 ---
 
-### Q：为什么首次使用“自动获取”会比较慢？
+### Q：为什么首次使用“自动获取模式2”会比较慢？
 
 Selenium Manager 会自动下载缺失的浏览器驱动。
 
-首次使用“自动获取”功能时，可能因下载驱动而耗时较久；若网络异常，也可能导致下载失败，进而无法启动浏览器。
+首次使用“自动获取模式2”时，可能因下载驱动而耗时较久；若网络异常，也可能导致下载失败，进而无法启动浏览器。模式 1 不使用 Selenium 或浏览器驱动。
 
 ---
 
@@ -163,9 +174,15 @@ Selenium Manager 会自动下载缺失的浏览器驱动。
 
 如果仍无法正常增加任务时长，可优先使用官方直播间进行观看。
 
+---
+
+### Q：加速失效
+
+加速时长不会超过直播间实际开播时长
+
 ## 🚀 快速开始
 
-### Windows
+### Windows / Linux / macOS 源码运行
 
 1. 安装 Python 3.10+
 2. 克隆项目并安装依赖
@@ -177,37 +194,30 @@ Selenium Manager 会自动下载缺失的浏览器驱动。
    python bilibili_gui.py
    ```
 
-### Linux / macOS
+macOS 上的 GUI 与 Windows 共用同一套界面和功能，支持纯 HTTP 静态解析任务 ID（模式 1），以及通过 Chrome / Edge 自动获取 Cookie、房间号和任务 ID（模式 2）。
 
-1. 安装 Python 3.10+
-2. 安装依赖
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. 启动 CLI
-   ```bash
-   python bilibili.py --cookie "SESSDATA=xxx; bili_jct=xxx" --rooms "23612045"
-   ```
-
-## 📜 使用文档
-
-### GUI（推荐）
+### Docker
 
 ```bash
-python bilibili_gui.py
+docker compose up -d --build
 ```
 
-填入 Cookie、房间号、任务 ID 后点击“启动”。
+访问 `http://127.0.0.1:23333`，默认无密码。
 
-你也可以在 GUI 中直接使用：
-
-- Cookie 自动获取（浏览器登录后自动回填）
-- 任务 ID 自动获取（抓取任务接口并自动回填）
-- 配置文件保存/加载（JSON）
+| 参数 | 默认值 / 说明 |
+|------|--------------|
+| `ports` | `127.0.0.1:23333:23333`，仅本机访问 |
+| `WEB_PASSWORD` | 可选，在 `.env` 中设置；非空时启用认证，用户名 `admin` |
 
 ### CLI
 
-- 获取命令帮助：`python bilibili.py --help`
+服务器或纯命令行环境可使用：
+
+```bash
+python bilibili.py --cookie "SESSDATA=xxx; bili_jct=xxx" --rooms "23612045"
+```
+
+获取命令帮助：`python bilibili.py --help`
 
 ```shell
 Bilibili Drops Miner
@@ -219,7 +229,6 @@ Options:
    --rooms ROOMS                          		房间号，逗号分隔
    --threads THREADS                      		每房间会话数（可加速任务进度）
    --reconnect-delay RECONNECT_DELAY      		断线重连延迟（秒）
-   --disable-web-heartbeat                		关闭 x25Kn 业务心跳
    --task-ids TASK_IDS                    		用于进度监控的任务 ID
    --task-interval TASK_INTERVAL          		任务查询间隔（秒）
    --notify-urls NOTIFY_URLS              		通知 URL，逗号分隔
@@ -239,13 +248,14 @@ python bilibili.py \
    -v
 ```
 
-## 📦 打包 EXE
+## 📦 打包
 
 ```bash
 python build.py               # 开发模式
-python build.py --target gui  # PyInstaller 打包 GUI
+python build.py --target gui  # PyInstaller 打包当前平台 GUI
 python build.py --target cli  # PyInstaller 打包 CLI
-python build_nuitka.py --target gui  # Nuitka 轻量打包 GUI
+python build.py --target gui --dmg  # macOS 额外生成 DMG
+python build_nuitka.py --target gui  # Nuitka 打包当前平台 GUI
 ```
 
 ## 🧩 配置文件
@@ -272,7 +282,7 @@ pip install -r requirements.txt
 
 ## 📄 License
 
-MIT，详见 [LICENSE](LICENSE)。
+本项目基于 [MIT License](LICENSE) 开源。
 
 ## 🙏 来源与致谢
 

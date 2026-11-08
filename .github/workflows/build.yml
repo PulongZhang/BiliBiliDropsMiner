@@ -6,20 +6,26 @@ on:
     paths:
       - '.github/workflows/build.yml'
       - 'requirements.txt'
+      - 'build.py'
       - 'build_nuitka.py'
-      - 'bilibili.py'
       - 'bilibili_gui.py'
       - 'bilibili_drops_miner/**'
+      - '!bilibili_drops_miner/cli.py'
       - 'img/app.ico'
+      - 'img/app.icns'
   workflow_dispatch:
     inputs:
       release:
-        description: '发布到 Release'
+        description: '发布类型 (none=仅构建 / preview=预览版 pre-release / stable=正式版)'
         required: true
-        type: boolean
-        default: false
+        type: choice
+        default: 'none'
+        options:
+          - none
+          - preview
+          - stable
       tag:
-        description: 'Release 版本号 (如 v1.0.0)'
+        description: '正式版版本号 (如 v1.0.0)，仅 stable 需要'
         required: false
         type: string
 
@@ -29,40 +35,43 @@ concurrency:
 
 jobs:
   prepare:
+    name: Prepare version
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
       update_channel: ${{ steps.version.outputs.update_channel }}
+      is_prerelease: ${{ steps.version.outputs.is_prerelease }}
     steps:
       - name: Determine build version
         id: version
         shell: bash
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.release }}" = "true" ]; then
+          release_type="${{ github.event.inputs.release }}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "$release_type" = "stable" ]; then
             if [ -n "${{ github.event.inputs.tag }}" ]; then
               version="${{ github.event.inputs.tag }}"
             else
               version="v$(date +%Y%m%d.%H%M%S)"
             fi
             update_channel="release"
+            is_prerelease="false"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "$release_type" = "preview" ]; then
+            version="v${GITHUB_SHA::7}"
+            update_channel="dev"
+            is_prerelease="true"
           else
             version="dev-${GITHUB_SHA::7}"
             update_channel="dev"
+            is_prerelease="false"
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "update_channel=$update_channel" >> "$GITHUB_OUTPUT"
+          echo "is_prerelease=$is_prerelease" >> "$GITHUB_OUTPUT"
 
-  build:
+  build-windows:
+    name: Windows GUI (Nuitka)
     needs: prepare
     runs-on: windows-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: gui
-            package: bilibili-drops-miner-gui
-          - target: cli
-            package: bilibili-drops-miner-cli
     steps:
       - uses: actions/checkout@v4
 
@@ -90,9 +99,9 @@ jobs:
             ~\AppData\Local\Nuitka
             ~\AppData\Local\ccache
             dist-nuitka\*.build
-          key: ${{ runner.os }}-py${{ steps.setup-python.outputs.python-version }}-nuitka-${{ matrix.target }}-${{ needs.prepare.outputs.version }}-${{ hashFiles('requirements.txt', 'build_nuitka.py', 'bilibili.py', 'bilibili_gui.py', 'bilibili_drops_miner/**/*.py') }}
+          key: ${{ runner.os }}-py${{ steps.setup-python.outputs.python-version }}-nuitka-gui-${{ needs.prepare.outputs.version }}-${{ hashFiles('requirements.txt', 'build_nuitka.py', 'bilibili_gui.py', 'bilibili_drops_miner/**/*.py') }}
           restore-keys: |
-            ${{ runner.os }}-py${{ steps.setup-python.outputs.python-version }}-nuitka-${{ matrix.target }}-
+            ${{ runner.os }}-py${{ steps.setup-python.outputs.python-version }}-nuitka-gui-
             ${{ runner.os }}-py${{ steps.setup-python.outputs.python-version }}-nuitka-
 
       - name: Install dependencies
@@ -100,48 +109,95 @@ jobs:
           python -m pip install --disable-pip-version-check -r requirements.txt
           python -m pip install --disable-pip-version-check nuitka ordered-set zstandard
 
-      - name: Build EXE with Nuitka
-        run: python build_nuitka.py --target ${{ matrix.target }}
+      - name: Build with Nuitka
+        run: python build_nuitka.py --target gui
 
-      - name: Package ZIP file
+      - name: Package ZIP
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
-          Compress-Archive -Path "dist-nuitka/${{ matrix.package }}" -DestinationPath "dist/${{ matrix.package }}.zip" -CompressionLevel Fastest -Force
+          Compress-Archive -Path "dist-nuitka/Bilibili Drops Miner" -DestinationPath "dist/bilibili-drops-miner-win-${{ needs.prepare.outputs.version }}.zip" -CompressionLevel Fastest -Force
 
-      - name: Upload build artifacts
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.package }}
-          path: dist/${{ matrix.package }}.zip
+          name: bilibili-drops-miner-win
+          path: dist/bilibili-drops-miner-win-*.zip
+          retention-days: 30
+
+  build-macos:
+    name: macOS GUI (PyInstaller)
+    needs: prepare
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate version file
+        shell: bash
+        run: |
+          cat > bilibili_drops_miner/_version.py <<EOF
+          APP_VERSION = "${{ needs.prepare.outputs.version }}"
+          UPDATE_CHANNEL = "${{ needs.prepare.outputs.update_channel }}"
+          REPOSITORY_URL = "https://github.com/mi0e/BiliBiliDropsMiner"
+          LATEST_RELEASE_API = "https://api.github.com/repos/mi0e/BiliBiliDropsMiner/releases/latest"
+          RELEASES_URL = "https://github.com/mi0e/BiliBiliDropsMiner/releases/latest"
+          EOF
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --disable-pip-version-check -r requirements.txt
+          python -m pip install --disable-pip-version-check pyinstaller
+
+      - name: Build app bundle with PyInstaller
+        run: python build.py --target gui
+
+      - name: Package ZIP (ditto preserves bundle symlinks)
+        run: ditto -c -k --keepParent "dist/Bilibili Drops Miner.app" "dist/bilibili-drops-miner-mac-${{ needs.prepare.outputs.version }}.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bilibili-drops-miner-mac
+          path: dist/bilibili-drops-miner-mac-*.zip
           retention-days: 30
 
   release:
-    needs: [prepare, build]
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.release == 'true'
+    name: Publish release
+    needs: [prepare, build-windows, build-macos]
+    if: github.event_name == 'workflow_dispatch' && (github.event.inputs.release == 'stable' || github.event.inputs.release == 'preview')
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-  
       - uses: actions/download-artifact@v4
         with:
           pattern: bilibili-drops-miner-*
           path: dist/
           merge-multiple: true
-  
-      - name: Rename release files
+
+      - name: Check existing release
+        id: existing
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          mv dist/bilibili-drops-miner-gui.zip dist/bilibili-drops-miner-gui-${{ needs.prepare.outputs.version }}.zip
-          mv dist/bilibili-drops-miner-cli.zip dist/bilibili-drops-miner-cli-${{ needs.prepare.outputs.version }}.zip
-  
+          if gh release view "${{ needs.prepare.outputs.version }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Release ${{ needs.prepare.outputs.version }} already exists, skipping."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Create Release
+        if: steps.existing.outputs.exists == 'false'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.prepare.outputs.version }}
           name: ${{ needs.prepare.outputs.version }}
           generate_release_notes: true
-          files: |
-            dist/bilibili-drops-miner-gui-${{ needs.prepare.outputs.version }}.zip
-            dist/bilibili-drops-miner-cli-${{ needs.prepare.outputs.version }}.zip
+          prerelease: ${{ needs.prepare.outputs.is_prerelease }}
+          files: dist/*.zip

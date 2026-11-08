@@ -35,6 +35,7 @@ const TICK_INTERVAL_MS = 250;
 const STAGGER_MS = 1000;
 
 let engine = null; // { manager, timer, config, startedAt }
+let stoppedStatus = null;
 
 const logInfo = (...a) => console.log(TAG, ...a);
 const logWarn = (...a) => console.warn(TAG, ...a);
@@ -43,8 +44,8 @@ const logWarn = (...a) => console.warn(TAG, ...a);
 // offscreen 对 chrome.storage / chrome.cookies 支持不稳定，集中在 SW 处理。
 
 // --- WBI keys provider：拉 nav → 解析 img/sub key（账号级，全程共享）---
-async function fetchWbiKeys() {
-  const resp = await fetch(NAV_URL, { credentials: "include" });
+async function fetchWbiKeys(fetchImpl) {
+  const resp = await fetchImpl(NAV_URL, { credentials: "include" });
   if (!resp.ok) throw new Error(`nav HTTP ${resp.status}`);
   const payload = await resp.json();
   if (payload.code !== 0) {
@@ -60,6 +61,7 @@ async function start({
   threadCount = 1,
   taskIds,
   taskQueryIntervalSeconds,
+  autoClaimRewards = true,
   csrf,
   identities: provided = [],
 }) {
@@ -77,15 +79,30 @@ async function start({
     throw new Error(`身份不足：需 ${n}，收到 ${identities.length}`);
   }
   logInfo(
-    `start room=${roomId} threads=${n} csrf=${csrf.slice(0, 4)}***` +
+    `start room=${roomId} threads=${n}` +
       ` buvid[0]=${identities[0].liveBuvid} ... buvid[${n - 1}]=${identities[n - 1].liveBuvid}`,
   );
 
-  const http = new HttpClient({
-    fetchImpl: (url, opts) => fetch(url, opts), // buildRequest 已带 credentials:include
-    wbiKeysProvider: fetchWbiKeys,
+  const controller = new AbortController();
+  const fetchImpl = (url, opts = {}) => fetch(url, {
+    ...opts,
+    signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]),
   });
-  const client = new BiliClient({ http, userAgent: PAYLOAD_UA });
+  const sleep = (ms) => new Promise((resolve, reject) => {
+    controller.signal.throwIfAborted();
+    const onAbort = () => { clearTimeout(timer); reject(controller.signal.reason); };
+    const timer = setTimeout(() => {
+      controller.signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    controller.signal.addEventListener("abort", onAbort, { once: true });
+  });
+  const http = new HttpClient({
+    fetchImpl,
+    wbiKeysProvider: () => fetchWbiKeys(fetchImpl),
+    sleep,
+  });
+  const client = new BiliClient({ http, userAgent: PAYLOAD_UA, sleep });
 
   const sessions = identities.map((id, i) => {
     const s = new BiliSession({
@@ -111,25 +128,25 @@ async function start({
     manager.tick().catch((err) => logWarn("tick error:", err));
   }, TICK_INTERVAL_MS);
 
-  // 任务监控 + 自动领奖（仅在有 taskIds 时启用；与心跳共享同一 BiliClient）。
-  let monitor = null;
-  if (normalizedTaskIds.length > 0) {
-    const intervalMs = Math.max(10, Number(taskQueryIntervalSeconds) || 30) * 1000;
-    monitor = new TaskMonitor({
-      client,
-      taskIds: normalizedTaskIds,
-      csrf,
-      intervalMs,
-      log: (lvl, msg) => (lvl === "warn" ? logWarn(msg) : logInfo(msg)),
-    });
-    monitor.start();
-    logInfo(`task monitor on: ${normalizedTaskIds.length} task(s), every ${intervalMs}ms`);
-  }
+  // 空任务列表也保留监控器，运行中识别新任务时可直接热更新。
+  const intervalMs = Math.max(10, Number(taskQueryIntervalSeconds) || 30) * 1000;
+  const monitor = new TaskMonitor({
+    client,
+    taskIds: normalizedTaskIds,
+    csrf,
+    intervalMs,
+    autoClaimRewards,
+    sleep,
+    log: (lvl, msg) => (lvl === "warn" ? logWarn(msg) : logInfo(msg)),
+  });
+  monitor.start();
+  stoppedStatus = null;
 
   engine = {
     manager,
     timer,
     monitor,
+    controller,
     config: { roomId, threadCount: n, taskIds: normalizedTaskIds },
     startedAt: Date.now(),
   };
@@ -138,9 +155,11 @@ async function start({
 
 async function stop() {
   if (!engine) return;
+  stoppedStatus = { ...status(), active: false, stoppedAt: Date.now() };
   clearInterval(engine.timer);
   engine.manager.stop();
   engine.monitor?.stop();
+  engine.controller.abort();
   const st = engine.manager.status();
   logInfo(
     `stopped room=${engine.config.roomId} threads=${engine.config.threadCount}` +
@@ -149,10 +168,20 @@ async function stop() {
   engine = null;
 }
 
+function updateTasks({ taskIds, taskQueryIntervalSeconds, autoClaimRewards }) {
+  if (!engine) throw new Error("引擎未运行");
+  engine.monitor.update({
+    taskIds,
+    intervalMs: Math.max(10, Number(taskQueryIntervalSeconds) || 30) * 1000,
+    autoClaimRewards,
+  });
+  engine.config.taskIds = engine.monitor.taskIds;
+}
+
 function status() {
   // 用 active 表示引擎是否运行；manager.status() 的 running 是「处于 running 态的
   // 会话数」。两者键名不同，spread 不会互相覆盖（watchdog.badgeFromStatus 依赖此约定）。
-  if (!engine) return { active: false };
+  if (!engine) return stoppedStatus || { active: false };
   const m = engine.monitor;
   return {
     active: true,
@@ -164,6 +193,10 @@ function status() {
       ? {
           taskIds: m.taskIds,
           claimedIds: [...m.claimedIds],
+          progresses: m.progresses,
+          claimResults: m.claimResults,
+          autoClaimRewards: m.autoClaimRewards,
+          lastUpdatedAt: m.lastUpdatedAt,
           lastError: m.lastError ? String(m.lastError.message || m.lastError) : null,
         }
       : null,
@@ -172,6 +205,7 @@ function status() {
 
 // 只接受 OFS_ 前缀消息（来自 background 转发）；popup 直发的 START 会被忽略。
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (!["OFS_START", "OFS_STOP", "OFS_STATUS", "OFS_UPDATE_TASKS", "OFS_UPDATE_AUTH", "OFS_REFRESH_TASKS", "OFS_CLAIM_REWARDS"].includes(msg?.type)) return false;
   (async () => {
     try {
       if (msg.type === "OFS_START") {
@@ -181,6 +215,19 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         await stop();
         sendResponse({ ok: true });
       } else if (msg.type === "OFS_STATUS") {
+        sendResponse({ ok: true, status: status() });
+      } else if (msg.type === "OFS_UPDATE_TASKS") {
+        updateTasks(msg);
+        sendResponse({ ok: true, status: status() });
+      } else if (msg.type === "OFS_UPDATE_AUTH") {
+        if (engine && msg.csrf) {
+          for (const session of engine.manager.sessions) session.csrf = msg.csrf;
+          engine.monitor.update({ csrf: msg.csrf });
+        }
+        sendResponse({ ok: true });
+      } else if (msg.type === "OFS_REFRESH_TASKS" || msg.type === "OFS_CLAIM_REWARDS") {
+        if (!engine) throw new Error("引擎未运行");
+        await engine.monitor.refresh({ claimAll: msg.type === "OFS_CLAIM_REWARDS" });
         sendResponse({ ok: true, status: status() });
       }
       // 其余类型静默：交由 background 处理

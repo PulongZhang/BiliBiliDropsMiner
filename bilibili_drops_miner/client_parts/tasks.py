@@ -20,6 +20,36 @@ def normalize_task_ids(task_ids: list[str]) -> list[str]:
     return [task_id.strip() for task_id in task_ids if task_id.strip()]
 
 
+def resolve_reward_task_ids(
+    task_ids: list[str],
+    progresses: list[TaskProgress],
+) -> list[str]:
+    """Resolve aggregate task IDs to the concrete checkpoint IDs used for claims."""
+    progress_by_id = {
+        progress.task_id.strip(): progress
+        for progress in progresses
+        if progress.task_id.strip()
+    }
+    resolved_ids: list[str] = []
+    seen: set[str] = set()
+
+    for task_id in normalize_task_ids(task_ids):
+        progress = progress_by_id.get(task_id)
+        checkpoint_ids = (
+            [point.sid.strip() for point in progress.check_points if point.sid.strip()]
+            if progress is not None
+            else []
+        )
+        candidates = checkpoint_ids or [task_id]
+        for candidate in candidates:
+            if candidate in seen:
+                continue
+            seen.add(candidate)
+            resolved_ids.append(candidate)
+
+    return resolved_ids
+
+
 def parse_task_checkpoints(check_points: Any) -> list[TaskCheckpointProgress]:
     checkpoints: list[TaskCheckpointProgress] = []
     for item in normalize_checkpoint_candidates(check_points):

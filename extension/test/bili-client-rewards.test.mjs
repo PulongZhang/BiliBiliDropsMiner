@@ -237,3 +237,16 @@ test("receiveAllMissionRewards: iterates with 1.2s interval; collects skip + fai
     "应有 1.2s 任务间隔 sleep",
   );
 });
+
+test("receiveAllMissionRewards: resolves and deduplicates aggregate checkpoint SIDs before claiming", async () => {
+  const http = capturingHttp({
+    [TASK_TOTALV2_URL]: { payload: { code: 0, data: [{ task_id: "parent", check_points: [
+      { sid: "child", status: 3 }, { sid: "child", status: 3 }, { sid: "other", status: 6 },
+    ] }] } },
+    [MISSION_INFO_URL]: { payload: { code: 0, data: { status: 6 } } },
+  });
+  const c = new BiliClient({ http, userAgent: UA, sleep: noopSleep });
+  const results = await c.receiveAllMissionRewards(["parent", "child"], { csrf: "jct" });
+  assert.deepEqual(results.map((result) => result.taskId), ["child", "other"]);
+  assert.deepEqual(http.calls.filter((call) => call.url === MISSION_INFO_URL).map((call) => call.params.task_id), ["child", "other"]);
+});
